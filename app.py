@@ -9,7 +9,7 @@ st.set_page_config(
 )
 
 st.title("🔎 Aktien-Schnäppchen-Agent")
-st.caption("Findet interessante Aktien – die endgültige Anlageentscheidung triffst du.")
+st.write("Der Agent sucht interessante Aktien und bewertet Chancen und Risiken.")
 
 bereich = st.radio(
     "Was möchtest du durchsuchen?",
@@ -17,9 +17,9 @@ bereich = st.radio(
     horizontal=True
 )
 
-# ==========================================================
+# ============================================================
 # SCHNÄPPCHEN
-# ==========================================================
+# ============================================================
 
 if bereich == "💰 Schnäppchen":
 
@@ -37,16 +37,16 @@ if bereich == "💰 Schnäppchen":
         horizontal=True
     )
 
+    waehrung = "$" if markt == "🇺🇸 USA" else "CHF"
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        waehrung = "$" if markt == "🇺🇸 USA" else "CHF"
-
         max_preis = st.number_input(
             f"Maximaler Aktienkurs ({waehrung})",
             min_value=0.50,
-            max_value=20.0,
-            value=5.0,
+            max_value=20.00,
+            value=5.00,
             step=0.50
         )
 
@@ -60,9 +60,12 @@ if bereich == "💰 Schnäppchen":
         )
 
     with col3:
-        anzahl = st.slider(
+        max_treffer = st.slider(
             "Max. Treffer",
-            5, 50, 20, 5
+            min_value=5,
+            max_value=50,
+            value=20,
+            step=5
         )
 
     st.info(
@@ -74,131 +77,129 @@ if bereich == "💰 Schnäppchen":
 
         kandidaten = []
 
-        with st.spinner("Aktien werden gesucht und analysiert ..."):
+        # --------------------------------------------------------
+        # 1. AUSGANGSLISTE ERMITTELN
+        # --------------------------------------------------------
+
+        if markt == "🇺🇸 USA":
 
             try:
-
-                # ==================================================
-                # USA
-                # ==================================================
-
-                if markt == "🇺🇸 USA":
-
-                    query = yf.EquityQuery(
-                        "and",
-                        [
-                            yf.EquityQuery(
-                                "gte",
-                                ["intradayprice", 0.50]
-                            ),
-                            yf.EquityQuery(
-                                "lte",
-                                ["intradayprice", max_preis]
-                            ),
-                            yf.EquityQuery(
-                                "gte",
-                                [
-                                    "intradaymarketcap",
-                                    min_marktkap * 1_000_000
-                                ]
-                            )
-                        ]
-                    )
-
-                    response = yf.screen(
-                        query,
-                        size=100,
-                        sortField="intradaymarketcap",
-                        sortAsc=False
-                    )
-
-                    quotes = response.get("quotes", [])
-
-                # ==================================================
-                # SCHWEIZ
-                # ==================================================
-
-                else:
-
-                    swiss_symbols = [
-                        "IDIA.SW",
-                        "AMS.SW",
-                        "ARYN.SW",
-                        "MBTN.SW",
-                        "RLF.SW",
-                        "MOLN.SW"
+                query = yf.EquityQuery(
+                    "and",
+                    [
+                        yf.EquityQuery(
+                            "gte",
+                            ["intradayprice", 0.50]
+                        ),
+                        yf.EquityQuery(
+                            "lte",
+                            ["intradayprice", max_preis]
+                        ),
+                        yf.EquityQuery(
+                            "gte",
+                            [
+                                "intradaymarketcap",
+                                min_marktkap * 1_000_000
+                            ]
+                        )
                     ]
+                )
 
-                    quotes = [
-                        {"symbol": symbol}
-                        for symbol in swiss_symbols
-                    ]
+                response = yf.screen(
+                    query,
+                    size=100,
+                    sortField="intradaymarketcap",
+                    sortAsc=False
+                )
 
-                if not quotes:
-                    st.warning("Die Börsensuche lieferte keine Treffer.")
-                    st.stop()
+                quotes = response.get("quotes", [])
 
-                fortschritt = st.progress(0)
+            except Exception as e:
+                st.error(f"Fehler bei der USA-Börsensuche: {e}")
+                quotes = []
 
-                for i, aktie in enumerate(quotes):
+        else:
 
-                    symbol = aktie.get("symbol")
+            # Startliste Schweizer Aktien.
+            # Diese erweitern wir später.
+            swiss_symbols = [
+                "IDIA.SW",
+                "AMS.SW",
+                "ARYN.SW",
+                "MBTN.SW",
+                "MOLN.SW"
+            ]
 
-                    if not symbol:
-                        continue
+            quotes = [{"symbol": s} for s in swiss_symbols]
+
+        # --------------------------------------------------------
+        # 2. AKTIEN ANALYSIEREN
+        # --------------------------------------------------------
+
+        if len(quotes) == 0:
+
+            st.warning(
+                "Die Börsensuche hat keine Aktien geliefert."
+            )
+
+        else:
+
+            progress = st.progress(0)
+
+            for nummer, quote in enumerate(quotes):
+
+                symbol = quote.get("symbol")
+
+                if symbol:
 
                     try:
 
                         ticker = yf.Ticker(symbol)
                         info = ticker.info
 
-                        preis = info.get(
-                            "currentPrice",
-                            info.get("regularMarketPrice")
-                        )
+                        preis = info.get("currentPrice")
 
                         if preis is None:
-                            continue
-
-                        if preis < 0.50 or preis > max_preis:
-                            continue
+                            preis = info.get("regularMarketPrice")
 
                         marketcap = info.get("marketCap")
 
-                        if marketcap is None:
+                        if preis is None or marketcap is None:
                             continue
 
+                        # Preisfilter
+                        if preis < 0.50 or preis > max_preis:
+                            continue
+
+                        # Marktkapitalisierung
                         if marketcap < min_marktkap * 1_000_000:
                             continue
+
+                        # ------------------------------------------------
+                        # US-BÖRSENFILTER
+                        # ------------------------------------------------
 
                         exchange = str(
                             info.get("exchange", "")
                         ).upper()
 
-                        quote_type = str(
-                            info.get("quoteType", "")
-                        ).upper()
-
-                        # ------------------------------------------
-                        # US-Börsenfilter
-                        # ------------------------------------------
-
                         if markt == "🇺🇸 USA":
 
-                            erlaubte_boersen = {
-                                "NMS",   # Nasdaq Global Select
-                                "NGM",   # Nasdaq Global Market
-                                "NCM",   # Nasdaq Capital Market
-                                "NYQ",   # NYSE
-                                "ASE",   # NYSE American
-                                "NAS"    # Nasdaq
-                            }
+                            erlaubte_boersen = [
+                                "NMS",
+                                "NGM",
+                                "NCM",
+                                "NYQ",
+                                "ASE",
+                                "NAS"
+                            ]
 
                             if exchange not in erlaubte_boersen:
                                 continue
 
-                            if quote_type != "EQUITY":
-                                continue
+                        # ------------------------------------------------
+                        # FUNDAMENTALDATEN
+                        # ------------------------------------------------
 
                         netto = info.get("netIncomeToCommon")
                         cash = info.get("totalCash")
@@ -221,7 +222,7 @@ if bereich == "💰 Schnäppchen":
                             score += 20
                             gruende.append("Cashflow positiv")
 
-                        # Cash / Schulden
+                        # Cash und Schulden
                         if cash is not None and schulden is not None:
 
                             if schulden == 0:
@@ -236,7 +237,7 @@ if bereich == "💰 Schnäppchen":
                                 score += 10
                                 gruende.append("Solide Cash-Position")
 
-                        # Umsatzwachstum
+                        # Wachstum
                         if wachstum is not None:
 
                             if wachstum > 0.10:
@@ -247,7 +248,7 @@ if bereich == "💰 Schnäppchen":
                                 score += 8
                                 gruende.append("Umsatz wächst")
 
-                        # KGV
+                        # Bewertung
                         if kgv is not None:
 
                             if 0 < kgv <= 15:
@@ -257,121 +258,146 @@ if bereich == "💰 Schnäppchen":
                             elif 15 < kgv <= 25:
                                 score += 5
 
-                        # Handelsvolumen
+                        # Handelsliquidität
                         if volumen is not None and volumen >= 500000:
                             score += 5
                             gruende.append("Gute Liquidität")
 
                         score = min(score, 100)
 
+                        # ------------------------------------------------
+                        # RISIKOKLASSE
+                        # ------------------------------------------------
+
                         if score >= 75:
                             bewertung = "🟢 Interessant"
+
                         elif score >= 50:
                             bewertung = "🟡 Prüfen"
+
                         else:
                             bewertung = "🔴 Risiko"
+
+                        # ------------------------------------------------
+                        # ERGEBNIS SPEICHERN
+                        # ------------------------------------------------
 
                         kandidaten.append(
                             {
                                 "Symbol": symbol,
-                                "Firma": info.get("shortName", symbol),
-                                f"Kurs {waehrung}": round(preis, 2),
+                                "Firma": info.get(
+                                    "shortName",
+                                    symbol
+                                ),
+                                f"Kurs {waehrung}": round(
+                                    float(preis),
+                                    2
+                                ),
                                 "Marktkap. Mio.": round(
-                                    marketcap / 1_000_000, 1
+                                    marketcap / 1_000_000,
+                                    1
                                 ),
                                 "Börse": exchange,
-                                "KGV": round(kgv, 1)
-                                if kgv is not None else None,
-                                "Gewinn": "✅"
-                                if netto is not None and netto > 0
-                                else "❌",
-                                "Cash > Schulden": "✅"
-                                if (
-                                    cash is not None
+                                "KGV": (
+                                    round(float(kgv), 1)
+                                    if kgv is not None
+                                    else None
+                                ),
+                                "Gewinn": (
+                                    "✅"
+                                    if netto is not None
+                                    and netto > 0
+                                    else "❌"
+                                ),
+                                "Cash > Schulden": (
+                                    "✅"
+                                    if cash is not None
                                     and schulden is not None
                                     and cash > schulden
-                                )
-                                else "❌",
-                                "Cashflow": "✅"
-                                if cashflow is not None
-                                and cashflow > 0
-                                else "❌",
+                                    else "❌"
+                                ),
+                                "Cashflow": (
+                                    "✅"
+                                    if cashflow is not None
+                                    and cashflow > 0
+                                    else "❌"
+                                ),
                                 "Score": score,
                                 "Bewertung": bewertung,
-                                "Warum interessant?": ", ".join(gruende)
+                                "Warum interessant?": ", ".join(
+                                    gruende
+                                )
                             }
                         )
 
                     except Exception:
                         pass
 
-                    finally:
-                        fortschritt.progress(
-                            (i + 1) / len(quotes)
-                        )
+                progress.progress(
+                    (nummer + 1) / len(quotes)
+                )
 
-                fortschritt.empty()
+            progress.empty()
 
-        # ======================================================
-        # ERGEBNIS
-        # ======================================================
+            # --------------------------------------------------------
+            # 3. ERGEBNIS ANZEIGEN
+            # --------------------------------------------------------
 
-        if kandidaten:
+            if kandidaten:
 
-            df = pd.DataFrame(kandidaten)
+                df = pd.DataFrame(kandidaten)
 
-            df = df.sort_values(
-                ["Score", "Marktkap. Mio."],
-                ascending=[False, False]
-            )
+                df = df.sort_values(
+                    by=["Score", "Marktkap. Mio."],
+                    ascending=[False, False]
+                )
 
-            df = df.head(anzahl)
+                df = df.head(max_treffer)
 
-            st.subheader("⭐ Gefundene Kandidaten")
+                st.subheader("⭐ Gefundene Kandidaten")
 
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-            st.caption(
-                "🟢 = interessant | 🟡 = genauer prüfen | "
-                "🔴 = erhöhtes Risiko. "
-                "Der Score ist keine Kaufempfehlung."
-            )
+                st.caption(
+                    "🟢 = interessant | 🟡 = genauer prüfen | "
+                    "🔴 = erhöhtes Risiko. "
+                    "Der Score ist keine Kaufempfehlung."
+                )
 
-        else:
+            else:
 
-            st.warning(
-                "Keine passenden Aktien gefunden. "
-                "Versuche testweise einen höheren Maximalpreis "
-                "oder eine niedrigere Mindest-Marktkapitalisierung."
-            )
+                st.warning(
+                    "Keine passenden Aktien gefunden. "
+                    "Wir können die Suchkriterien anschließend anpassen."
+                )
 
 
-# ==========================================================
+# ============================================================
 # BIOTECH
-# ==========================================================
+# ============================================================
 
 elif bereich == "🧬 Biotech-Perlen":
 
     st.header("🧬 Biotech-Perlen")
 
     st.write(
-        "Hier suchen wir nach kleinen Biotech-Unternehmen "
-        "mit interessanter Pipeline und wichtigen Katalysatoren."
+        "Hier suchen wir nach kleineren Biotech-Unternehmen "
+        "mit interessanten Medikamenten und wichtigen Terminen."
     )
 
     st.info(
-        "📅 Geplant: FDA-/PDUFA-Termine, klinische Studiendaten, "
-        "Cash-Runway und Verschuldung."
+        "📅 Als nächstes integrieren wir hier FDA-/PDUFA-Termine, "
+        "klinische Studien, Cash-Runway und Verschuldung."
     )
 
 
-# ==========================================================
+# ============================================================
 # SPACE
-# ==========================================================
+# ============================================================
 
 elif bereich == "🚀 Space / SpaceX":
 
@@ -379,10 +405,10 @@ elif bereich == "🚀 Space / SpaceX":
 
     st.write(
         "Hier suchen wir nach börsennotierten Unternehmen "
-        "aus Raumfahrt, Satelliten sowie der SpaceX-/Starlink-Lieferkette."
+        "aus Raumfahrt, Satelliten und dem SpaceX-/Starlink-Umfeld."
     )
 
     st.info(
-        "🚀 Geplant: SpaceX-Bezug, Aufträge, Umsatzwachstum, "
-        "Cash und Verschuldung."
+        "🚀 Später bewerten wir hier SpaceX-Bezug, Aufträge, "
+        "Wachstum, Gewinn, Cash und Verschuldung."
     )
