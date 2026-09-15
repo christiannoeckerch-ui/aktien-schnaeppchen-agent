@@ -17,7 +17,7 @@ st.write(
 
 bereich = st.radio(
     "Was möchtest du durchsuchen?",
-    ["💰 Schnäppchen", "🧬 Biotech-Perlen", "🚀 Space / SpaceX"],
+    ["💰 Schnäppchen", "🧬 Biotech-Perlen", "🚀 Space / Rechenzentren"],
     horizontal=True
 )
 
@@ -25,6 +25,25 @@ bereich = st.radio(
 # ============================================================
 # HILFSFUNKTIONEN
 # ============================================================
+
+def kursauswahl(waehrung, key):
+    auswahl = st.radio(
+        "Kursgrenze",
+        [f"Bis 5 {waehrung}", f"Bis 10 {waehrung}", "Eigene Grenze"],
+        key=f"{key}_preset",
+    )
+    if auswahl == f"Bis 5 {waehrung}":
+        grenze = 5.0
+    elif auswahl == f"Bis 10 {waehrung}":
+        grenze = 10.0
+    else:
+        grenze = st.number_input(
+            f"Maximaler Aktienkurs ({waehrung})", min_value=0.5,
+            max_value=1000.0, value=10.0, step=0.5, key=f"{key}_custom",
+        )
+    st.caption(f"0,50 bis einschließlich {grenze:g} {waehrung}")
+    return grenze
+
 
 def prozent(wert):
     if wert is None:
@@ -130,13 +149,7 @@ if bereich == "💰 Schnäppchen":
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        max_preis = st.number_input(
-            f"Maximaler Aktienkurs ({waehrung})",
-            min_value=0.50,
-            max_value=20.00,
-            value=5.00,
-            step=0.50
-        )
+        max_preis = kursauswahl("USD" if markt == "🇺🇸 USA" else "CHF", "schnaeppchen")
 
     with col2:
         min_marktkap = st.number_input(
@@ -928,7 +941,7 @@ elif bereich == "🧬 Biotech-Perlen":
     kurswaehrung = "CHF" if biotech_ch else "USD"
     col1, col2, col3 = st.columns(3)
     with col1:
-        max_preis = st.number_input(f"Maximaler Aktienkurs ({kurswaehrung})", min_value=0.5, max_value=100.0, value=5.0, step=0.5)
+        max_preis = kursauswahl(kurswaehrung, "biotech")
     with col2:
         min_mcap = st.number_input(f"Mindest-Marktkapitalisierung (Mio. {kurswaehrung})", min_value=1, max_value=10000, value=50, step=10)
     with col3:
@@ -1065,20 +1078,37 @@ elif bereich == "🧬 Biotech-Perlen":
     st.caption("Cash, Schulden und FCF sind in der jeweiligen Bilanzwährung angegeben. Cash-Runway verwendet dieselbe Währung für Zähler und Nenner. Yahoo kann unterschiedliche Berichtsstände liefern; FCF ist die von Yahoo gelieferte jährliche Kennzahl, keine Prognose.")
     st.caption("Aktienzahl 1J: ungefähre Veränderung ausstehenden Kapitals anhand historischer Aktienzahlen. Positive Werte zeigen mehr Aktien; Splits, ADR-Änderungen und Datenfehler können den Vergleich verzerren. Fehlende oder zu alte Daten bleiben leer. Kein Biotech-Score und keine Kaufempfehlung.")
 
-elif bereich == "🚀 Space / SpaceX":
-    st.header("🚀 Space-Unternehmen")
-    st.write("Börsennotierte Raumfahrt- und Satellitenunternehmen mit Cash-Runway, Schuldenampel und Aktienzahlveränderung.")
-    kurswaehrung = "USD"
-    st.caption("Markt: USA. Startliste: Rocket Lab (RKLB), Redwire (RDW), Intuitive Machines (LUNR), Planet Labs (PL). Kein vollständiger Marktscan. Für die Schweiz ist noch keine Space-Auswahlliste hinterlegt.")
-    st.info("Die Aufnahme in diese Liste bedeutet keinen belegten SpaceX-/Starlink-Bezug. SpaceX selbst sowie Aufträge und Partnerschaften werden hier noch nicht ausgewertet.")
+elif bereich == "🚀 Space / Rechenzentren":
+    st.header("🚀 Space & Rechenzentren")
+    st.write("Raumfahrtunternehmen und Zulieferer für Raumfahrt oder Rechenzentren mit zwei Finanzampeln.")
+    markt = st.radio("Markt auswählen", ["🇺🇸 USA", "🇨🇭 Schweiz"], horizontal=True, key="space_markt")
+    thema = st.radio("Thema auswählen", ["Beides", "Raumfahrt", "Rechenzentren"], horizontal=True, key="space_thema")
+    kurswaehrung = "CHF" if markt == "🇨🇭 Schweiz" else "USD"
+    # Manuell recherchierte Themenliste; keine Aussage über Umsatzanteile.
+    universum = [
+        ("RKLB", "Rocket Lab", "USD", ["Raumfahrt"], "Raketen und Raumfahrtsysteme", "https://investors.rocketlabcorp.com/resources/investor-faqs"),
+        ("RDW", "Redwire", "USD", ["Raumfahrt"], "Raumfahrt- und Verteidigungstechnik", "https://ir.rdw.com/"),
+        ("LUNR", "Intuitive Machines", "USD", ["Raumfahrt"], "Mondmissionen und Raumfahrtinfrastruktur", "https://investors.intuitivemachines.com/shareholder-services/investor-faqs"),
+        ("PL", "Planet Labs", "USD", ["Raumfahrt"], "Erdbeobachtung mit Satelliten", "https://investors.planet.com/"),
+        ("VRT", "Vertiv", "USD", ["Rechenzentren"], "Stromversorgung und Kühlung", "https://www.vertiv.com/"),
+        ("CNTL.SW", "Centiel", "CHF", ["Rechenzentren"], "Unterbrechungsfreie Stromversorgung (USV)", "https://www.centiel.com/investors-media/share-details/"),
+        ("HUBN.SW", "HUBER+SUHNER", "CHF", ["Raumfahrt", "Rechenzentren"], "Verbindungen für Satelliten und Rechenzentren", "https://www.hubersuhner.com/en/markets/communication/data-center/hyperscale"),
+        ("ABBN.SW", "ABB", "CHF", ["Rechenzentren"], "Elektrifizierung und Energieverteilung", "https://new.abb.com/data-centers"),
+    ]
+    auswahl = [row for row in universum if row[2] == kurswaehrung and (thema == "Beides" or thema in row[3])]
+    st.caption("Feste Themenliste, kein vollständiger Marktscan. Auch diversifizierte Zulieferer sind enthalten; die Aufnahme belegt keinen SpaceX-/Starlink-Bezug.")
+    with st.expander("Enthaltene Unternehmen und Quellen"):
+        for row in auswahl:
+            st.markdown(f"- **{row[1]} ({row[0]})**: {row[4]} · [Quelle]({row[5]})")
+    st.caption("Centiel: SIX-Symbol CNTL, Yahoo-Abfrage CNTL.SW. Falls Yahoo noch keine Daten bereitstellt, wird dies als Datenfehler angezeigt. Wegen der Fusion mit HT5 wird kein Aktienzahlvergleich 1J berechnet.")
     col1, col2, col3 = st.columns(3)
     with col1:
-        max_preis = st.number_input(f"Maximaler Aktienkurs ({kurswaehrung})", min_value=0.5, max_value=1000.0, value=100.0, step=0.5)
+        max_preis = kursauswahl(kurswaehrung, "space")
     with col2:
         min_mcap = st.number_input(f"Mindest-Marktkapitalisierung (Mio. {kurswaehrung})", min_value=1, max_value=10000, value=50, step=10)
     with col3:
         max_treffer = st.slider("Max. Treffer", 5, 50, 20, 5)
-    st.caption("Kurs ab 0,50 USD bis einschließlich Obergrenze. Für günstigere Titel kannst du den maximalen Kurs auf 5 USD senken.")
+    st.caption(f"Kurs ab 0,50 {kurswaehrung} bis einschließlich Obergrenze. Für günstige Titel die Obergrenze senken. Unternehmen außerhalb der Filter erscheinen nicht in der Ergebnistabelle.")
     st.info("Runway = Cash / Betrag des negativen jährlichen Free Cashflows. Grobe Schätzung bei gleichbleibendem Verbrauch; Schuldenfälligkeiten und künftige Projektkosten sind nicht berücksichtigt. Auftragsbestand, Starttermine und Projektrisiken sind noch nicht bewertet.")
 
     def finite_number(value):
@@ -1128,11 +1158,11 @@ elif bereich == "🚀 Space / SpaceX":
         years = cash / abs(fcf)
         return years, "Unter 1 Jahr" if years < 1 else "Aus negativem FCF geschätzt"
 
-    if st.button("🔎 Space-Unternehmen suchen", type="primary"):
+    if st.button("🔎 Space-/Rechenzentren-Unternehmen suchen", type="primary"):
         ergebnisse, fehler_liste = [], []
         try:
-            with st.spinner("Space-Unternehmen werden gesucht und analysiert …"):
-                quotes = [{"symbol": symbol} for symbol in ["RKLB", "RDW", "LUNR", "PL"]]
+            with st.spinner("Space-/Rechenzentren-Unternehmen werden gesucht und analysiert …"):
+                quotes = [{"symbol": row[0], "shortName": row[1], "thema": ", ".join(row[3]), "bezug": row[4]} for row in auswahl]
                 for quote in quotes:
                     symbol = quote.get("symbol")
                     if not symbol:
@@ -1147,8 +1177,8 @@ elif bereich == "🚀 Space / SpaceX":
                     if price is None:
                         price = finite_number(info.get("regularMarketPrice"))
                     mcap = finite_number(info.get("marketCap"))
-                    if info.get("currency") != "USD":
-                        fehler_liste.append(f"{symbol}: USD-Kurswährung nicht bestätigt")
+                    if info.get("currency") != kurswaehrung:
+                        fehler_liste.append(f"{symbol}: {kurswaehrung}-Kurswährung nicht bestätigt / Yahoo-Daten fehlen")
                         continue
                     if price is None or mcap is None:
                         fehler_liste.append(f"{symbol}: Kurs oder Marktkapitalisierung fehlt")
@@ -1160,11 +1190,13 @@ elif bereich == "🚀 Space / SpaceX":
                     fcf = finite_number(info.get("freeCashflow"))
                     years, status = runway(cash, fcf)
                     debt_light, debt_ratio = schulden_ampel(cash, debt)
-                    dilution = verwasserung_berechnen(ticker)
+                    dilution = None if symbol == "CNTL.SW" else verwasserung_berechnen(ticker)
                     ergebnisse.append({
                         "Runway-Ampel": runway_ampel(years),
                         "Schulden-Ampel": debt_light,
                         "Symbol": symbol,
+                        "Thema": quote["thema"],
+                        "Geschäftsbezug": quote["bezug"],
                         "Firma": info.get("shortName") or quote.get("shortName") or symbol,
                         f"Kurs {kurswaehrung}": round(price, 2),
                         f"Marktkap. Mio. {kurswaehrung}": round(mcap / 1_000_000, 1),
@@ -1176,12 +1208,13 @@ elif bereich == "🚀 Space / SpaceX":
                         "Cash-Runway Jahre": zahl(years, 2),
                         "Runway-Hinweis": status,
                         "Aktienzahl 1J %": dilution,
+                        "Aktienzahl-Hinweis": "Fusion mit HT5: nicht vergleichbar" if symbol == "CNTL.SW" else "",
                         "Börse": info.get("exchange") or quote.get("exchange", "k.A."),
                     })
             if ergebnisse:
                 st.dataframe(pd.DataFrame(ergebnisse).sort_values(f"Marktkap. Mio. {kurswaehrung}", ascending=False).head(max_treffer), use_container_width=True, hide_index=True)
             else:
-                st.warning("Kein Treffer in der festen Auswahl. Prüfe die Kursobergrenze und Mindest-Marktkapitalisierung. Mit diesen Einstellungen wurden keine Space-Unternehmen gefunden.")
+                st.warning("Kein Treffer in der festen Auswahl. Prüfe die Kursobergrenze und Mindest-Marktkapitalisierung. Mit diesen Einstellungen wurden keine Space-/Rechenzentren-Unternehmen gefunden.")
             if fehler_liste:
                 st.warning("Bei einigen Titeln fehlen Daten. Leere Werte bedeuten unbekannt, nicht null.")
                 with st.expander("Datenfehler anzeigen"):
