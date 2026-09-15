@@ -922,15 +922,21 @@ if bereich == "💰 Schnäppchen":
 
 elif bereich == "🧬 Biotech-Perlen":
     st.header("🧬 Biotech-Perlen")
-    st.write("US-börsennotierte Biotech-Unternehmen mit Cash, Schulden, grobem Cash-Runway und Veränderung der Aktienzahl.")
+    st.write("Biotech-Unternehmen mit Cash, Schulden, grobem Cash-Runway und Veränderung der Aktienzahl.")
+    biotech_markt = st.radio("Markt auswählen", ["🇺🇸 USA", "🇨🇭 Schweiz"], horizontal=True, key="biotech_markt")
+    biotech_ch = biotech_markt == "🇨🇭 Schweiz"
+    kurswaehrung = "CHF" if biotech_ch else "USD"
     col1, col2, col3 = st.columns(3)
     with col1:
-        max_preis = st.number_input("Maximaler Aktienkurs (USD)", min_value=0.5, max_value=100.0, value=5.0, step=0.5)
+        max_preis = st.number_input(f"Maximaler Aktienkurs ({kurswaehrung})", min_value=0.5, max_value=100.0, value=5.0, step=0.5)
     with col2:
-        min_mcap = st.number_input("Mindest-Marktkapitalisierung (Mio. USD)", min_value=1, max_value=10000, value=50, step=10)
+        min_mcap = st.number_input(f"Mindest-Marktkapitalisierung (Mio. {kurswaehrung})", min_value=1, max_value=10000, value=50, step=10)
     with col3:
         max_treffer = st.slider("Max. Treffer", 5, 50, 20, 5)
-    st.caption("Kurs ab 0,50 USD, einschließlich der eingestellten Obergrenze. Maximal 250 Suchkandidaten, nach Marktkapitalisierung absteigend. US-Notierung bedeutet nicht zwingend US-Firmensitz.")
+    if biotech_ch:
+        st.caption("Schweiz: feste Auswahl aus Idorsia, Molecular Partners, Addex und Basilea; kein vollständiger Marktscan. Kurs und Marktkapitalisierung in CHF. Auch hier gilt der Mindestkurs von 0,50 CHF.")
+    else:
+        st.caption("USA: Kurs ab 0,50 USD; maximal 250 Suchkandidaten nach Marktkapitalisierung. US-Notierung bedeutet nicht zwingend US-Firmensitz.")
     st.info("Runway = Cash / Betrag des negativen jährlichen Free Cashflows. Grobe Schätzung bei gleichbleibendem Verbrauch; Schuldenfälligkeiten und künftige Studienkosten sind nicht berücksichtigt. Pipeline und klinische Termine sind noch nicht bewertet.")
 
     def finite_number(value):
@@ -965,15 +971,18 @@ elif bereich == "🧬 Biotech-Perlen":
         ergebnisse, fehler_liste = [], []
         try:
             with st.spinner("Biotech-Unternehmen werden gesucht und analysiert …"):
-                query = yf.EquityQuery("and", [
-                    yf.EquityQuery("eq", ["industry", "Biotechnology"]),
-                    yf.EquityQuery("is-in", ["exchange", "NMS", "NGM", "NCM", "NYQ", "ASE"]),
-                    yf.EquityQuery("gte", ["intradayprice", 0.5]),
-                    yf.EquityQuery("lte", ["intradayprice", max_preis]),
-                    yf.EquityQuery("gte", ["intradaymarketcap", min_mcap * 1_000_000]),
-                ])
-                response = yf.screen(query, size=250, sortField="intradaymarketcap", sortAsc=False)
-                quotes = response.get("quotes", [])
+                if biotech_ch:
+                    quotes = [{"symbol": symbol} for symbol in ["IDIA.SW", "MOLN.SW", "ADXN.SW", "BSLN.SW"]]
+                else:
+                    query = yf.EquityQuery("and", [
+                        yf.EquityQuery("eq", ["industry", "Biotechnology"]),
+                        yf.EquityQuery("is-in", ["exchange", "NMS", "NGM", "NCM", "NYQ", "ASE"]),
+                        yf.EquityQuery("gte", ["intradayprice", 0.5]),
+                        yf.EquityQuery("lte", ["intradayprice", max_preis]),
+                        yf.EquityQuery("gte", ["intradaymarketcap", min_mcap * 1_000_000]),
+                    ])
+                    response = yf.screen(query, size=250, sortField="intradaymarketcap", sortAsc=False)
+                    quotes = response.get("quotes", [])
                 for quote in quotes:
                     symbol = quote.get("symbol")
                     if not symbol:
@@ -986,6 +995,14 @@ elif bereich == "🧬 Biotech-Perlen":
                         fehler_liste.append(f"{symbol}: {error}")
                     price = finite_number(quote.get("regularMarketPrice", quote.get("intradayprice")))
                     mcap = finite_number(quote.get("marketCap", quote.get("intradaymarketcap")))
+                    if biotech_ch:
+                        price = finite_number(info.get("currentPrice"))
+                        if price is None:
+                            price = finite_number(info.get("regularMarketPrice"))
+                        mcap = finite_number(info.get("marketCap"))
+                        if info.get("currency") != "CHF":
+                            fehler_liste.append(f"{symbol}: CHF-Kurswährung nicht bestätigt")
+                            continue
                     if price is None or mcap is None:
                         fehler_liste.append(f"{symbol}: Kurs oder Marktkapitalisierung fehlt")
                         continue
@@ -1000,8 +1017,8 @@ elif bereich == "🧬 Biotech-Perlen":
                         "Runway-Ampel": runway_ampel(years),
                         "Symbol": symbol,
                         "Firma": info.get("shortName") or quote.get("shortName") or symbol,
-                        "Kurs USD": round(price, 2),
-                        "Marktkap. Mio. USD": round(mcap / 1_000_000, 1),
+                        f"Kurs {kurswaehrung}": round(price, 2),
+                        f"Marktkap. Mio. {kurswaehrung}": round(mcap / 1_000_000, 1),
                         "Bilanzwährung": info.get("financialCurrency") or "k.A.",
                         "Cash Mio.": zahl(cash / 1_000_000) if cash is not None else None,
                         "Schulden Mio.": zahl(debt / 1_000_000) if debt is not None else None,
@@ -1009,12 +1026,12 @@ elif bereich == "🧬 Biotech-Perlen":
                         "Cash-Runway Jahre": zahl(years, 2),
                         "Runway-Hinweis": status,
                         "Aktienzahl 1J %": dilution,
-                        "Börse": quote.get("exchange", "k.A."),
+                        "Börse": info.get("exchange") or quote.get("exchange", "k.A."),
                     })
-                    if len(ergebnisse) >= max_treffer:
+                    if not biotech_ch and len(ergebnisse) >= max_treffer:
                         break
             if ergebnisse:
-                st.dataframe(pd.DataFrame(ergebnisse), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(ergebnisse).sort_values(f"Marktkap. Mio. {kurswaehrung}", ascending=False).head(max_treffer), use_container_width=True, hide_index=True)
             else:
                 st.warning("Mit diesen Einstellungen wurden keine Biotech-Unternehmen gefunden.")
             if fehler_liste:
