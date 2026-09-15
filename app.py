@@ -9,13 +9,38 @@ st.set_page_config(
 )
 
 st.title("🔎 Aktien-Schnäppchen-Agent")
-st.write("Der Agent sucht interessante Aktien und bewertet Chancen und Risiken.")
+st.write(
+    "Der Agent sucht günstige Aktien und bewertet Qualität, "
+    "Bilanz, Wachstum und Bewertung."
+)
 
 bereich = st.radio(
     "Was möchtest du durchsuchen?",
     ["💰 Schnäppchen", "🧬 Biotech-Perlen", "🚀 Space / SpaceX"],
     horizontal=True
 )
+
+# ============================================================
+# HILFSFUNKTIONEN
+# ============================================================
+
+def prozent(wert):
+    if wert is None:
+        return None
+    try:
+        return round(float(wert) * 100, 1)
+    except Exception:
+        return None
+
+
+def zahl(wert, stellen=1):
+    if wert is None:
+        return None
+    try:
+        return round(float(wert), stellen)
+    except Exception:
+        return None
+
 
 # ============================================================
 # SCHNÄPPCHEN
@@ -26,9 +51,9 @@ if bereich == "💰 Schnäppchen":
     st.header("💰 Qualitäts-Schnäppchen")
 
     st.write(
-        "Gesucht werden günstige Aktien. Bevorzugt werden Firmen mit "
-        "Gewinn, positivem Cashflow, viel Cash, geringer Verschuldung "
-        "und Wachstum."
+        "Gesucht werden günstige Aktien mit möglichst guter "
+        "Profitabilität, gesundem Cashflow, vernünftiger Verschuldung, "
+        "Wachstum und attraktiver Bewertung."
     )
 
     markt = st.radio(
@@ -75,7 +100,7 @@ if bereich == "💰 Schnäppchen":
         kandidaten = []
 
         # --------------------------------------------------------
-        # AUSGANGSLISTE
+        # AKTIENUNIVERSUM
         # --------------------------------------------------------
 
         if markt == "🇺🇸 USA":
@@ -117,6 +142,8 @@ if bereich == "💰 Schnäppchen":
 
         else:
 
+            # Vorläufige Schweizer Testliste.
+            # Einen breiteren SIX-Scanner bauen wir später.
             swiss_symbols = [
                 "IDIA.SW",
                 "AMS.SW",
@@ -167,9 +194,10 @@ if bereich == "💰 Schnäppchen":
                     if marketcap < min_marktkap * 1_000_000:
                         continue
 
-                    exchange = str(info.get("exchange", "")).upper()
+                    exchange = str(
+                        info.get("exchange", "")
+                    ).upper()
 
-                    # Nur reguläre US-Börsen
                     if markt == "🇺🇸 USA":
 
                         erlaubte_boersen = {
@@ -184,93 +212,314 @@ if bereich == "💰 Schnäppchen":
                         if exchange not in erlaubte_boersen:
                             continue
 
-                    # Fundamentaldaten
+                    # ------------------------------------------------
+                    # BRANCHE
+                    # ------------------------------------------------
+
+                    sector = str(
+                        info.get("sector", "")
+                    ).lower()
+
+                    industry = str(
+                        info.get("industry", "")
+                    ).lower()
+
+                    finanzunternehmen = (
+                        "financial" in sector
+                        or "bank" in industry
+                        or "insurance" in industry
+                    )
+
+                    # ------------------------------------------------
+                    # FUNDAMENTALDATEN
+                    # ------------------------------------------------
+
                     netto = info.get("netIncomeToCommon")
                     cash = info.get("totalCash")
                     schulden = info.get("totalDebt")
-                    cashflow = info.get("operatingCashflow")
-                    umsatzwachstum = info.get("revenueGrowth")
-                    gewinnwachstum = info.get("earningsGrowth")
-                    kgv = info.get("trailingPE")
-                    volumen = info.get("averageVolume")
+
+                    operativer_cashflow = info.get(
+                        "operatingCashflow"
+                    )
+
+                    free_cashflow = info.get(
+                        "freeCashflow"
+                    )
+
+                    umsatzwachstum = info.get(
+                        "revenueGrowth"
+                    )
+
+                    gewinnwachstum = info.get(
+                        "earningsGrowth"
+                    )
+
+                    gewinnmarge = info.get(
+                        "profitMargins"
+                    )
+
+                    roe = info.get(
+                        "returnOnEquity"
+                    )
+
+                    kgv = info.get(
+                        "trailingPE"
+                    )
+
+                    kuv = info.get(
+                        "priceToSalesTrailing12Months"
+                    )
+
+                    debt_equity = info.get(
+                        "debtToEquity"
+                    )
+
+                    volumen = info.get(
+                        "averageVolume"
+                    )
 
                     score = 0
                     gruende = []
+                    warnungen = []
 
-                    # Gewinn
+                    # ------------------------------------------------
+                    # 1. PROFITABILITÄT
+                    # ------------------------------------------------
+
                     if netto is not None and netto > 0:
-                        score += 20
+                        score += 12
                         gruende.append("Gewinn positiv")
 
-                    # Cashflow
-                    if cashflow is not None and cashflow > 0:
-                        score += 15
-                        gruende.append("Cashflow positiv")
+                    if gewinnmarge is not None:
 
-                    # Cash / Schulden
-                    if cash is not None and schulden is not None:
-
-                        if schulden == 0:
-                            score += 20
-                            gruende.append("Keine Schulden")
-
-                        elif cash > schulden:
-                            score += 20
-                            gruende.append("Mehr Cash als Schulden")
-
-                        elif cash > schulden * 0.5:
+                        if gewinnmarge >= 0.15:
                             score += 8
-                            gruende.append("Solide Cash-Position")
+                            gruende.append("Starke Gewinnmarge")
 
-                    # Umsatzwachstum
+                        elif gewinnmarge >= 0.05:
+                            score += 5
+                            gruende.append("Positive Gewinnmarge")
+
+                        elif gewinnmarge < 0:
+                            score -= 5
+                            warnungen.append("Negative Marge")
+
+                    if roe is not None:
+
+                        if roe >= 0.15:
+                            score += 7
+                            gruende.append("ROE >15 %")
+
+                        elif roe >= 0.08:
+                            score += 4
+
+                    # ------------------------------------------------
+                    # 2. CASHFLOW
+                    # ------------------------------------------------
+
+                    if not finanzunternehmen:
+
+                        if (
+                            operativer_cashflow is not None
+                            and operativer_cashflow > 0
+                        ):
+                            score += 8
+                            gruende.append(
+                                "Operativer Cashflow positiv"
+                            )
+
+                        elif (
+                            operativer_cashflow is not None
+                            and operativer_cashflow < 0
+                        ):
+                            score -= 4
+                            warnungen.append(
+                                "Negativer operativer Cashflow"
+                            )
+
+                        if (
+                            free_cashflow is not None
+                            and free_cashflow > 0
+                        ):
+                            score += 10
+                            gruende.append(
+                                "Free Cashflow positiv"
+                            )
+
+                        elif (
+                            free_cashflow is not None
+                            and free_cashflow < 0
+                        ):
+                            score -= 6
+                            warnungen.append(
+                                "Free Cashflow negativ"
+                            )
+
+                    # ------------------------------------------------
+                    # 3. BILANZ / SCHULDEN
+                    # ------------------------------------------------
+
+                    if not finanzunternehmen:
+
+                        if (
+                            cash is not None
+                            and schulden is not None
+                        ):
+
+                            if schulden == 0:
+                                score += 12
+                                gruende.append(
+                                    "Keine Finanzschulden"
+                                )
+
+                            elif cash > schulden:
+                                score += 12
+                                gruende.append(
+                                    "Mehr Cash als Schulden"
+                                )
+
+                            elif cash > schulden * 0.5:
+                                score += 5
+                                gruende.append(
+                                    "Solide Cash-Position"
+                                )
+
+                        if debt_equity is not None:
+
+                            # Yahoo liefert Debt/Equity häufig
+                            # als Prozentwert, z.B. 50 = 50 %
+                            if debt_equity <= 50:
+                                score += 5
+                                gruende.append(
+                                    "Niedrige Verschuldung"
+                                )
+
+                            elif debt_equity > 150:
+                                score -= 6
+                                warnungen.append(
+                                    "Hohe Verschuldung"
+                                )
+
+                    else:
+
+                        warnungen.append(
+                            "Finanzunternehmen: "
+                            "Schulden/Cashflow separat beurteilen"
+                        )
+
+                    # ------------------------------------------------
+                    # 4. WACHSTUM
+                    # ------------------------------------------------
+
                     if umsatzwachstum is not None:
 
                         if umsatzwachstum > 0.20:
-                            score += 15
-                            gruende.append("Starkes Umsatzwachstum")
+                            score += 10
+                            gruende.append(
+                                "Umsatzwachstum >20 %"
+                            )
 
                         elif umsatzwachstum > 0.10:
-                            score += 12
-                            gruende.append("Umsatzwachstum >10 %")
+                            score += 7
+                            gruende.append(
+                                "Umsatzwachstum >10 %"
+                            )
 
                         elif umsatzwachstum > 0:
-                            score += 6
-                            gruende.append("Umsatz wächst")
+                            score += 3
 
-                    # Gewinnwachstum
+                        elif umsatzwachstum < -0.10:
+                            score -= 5
+                            warnungen.append(
+                                "Umsatz deutlich rückläufig"
+                            )
+
                     if gewinnwachstum is not None:
 
                         if gewinnwachstum > 0.20:
-                            score += 15
-                            gruende.append("Starkes Gewinnwachstum")
+                            score += 10
+                            gruende.append(
+                                "Gewinnwachstum >20 %"
+                            )
 
                         elif gewinnwachstum > 0.10:
-                            score += 10
-                            gruende.append("Gewinnwachstum >10 %")
+                            score += 7
+                            gruende.append(
+                                "Gewinnwachstum >10 %"
+                            )
 
                         elif gewinnwachstum > 0:
-                            score += 5
-                            gruende.append("Gewinn wächst")
+                            score += 3
 
-                    # KGV
+                        elif gewinnwachstum < -0.10:
+                            score -= 5
+                            warnungen.append(
+                                "Gewinn deutlich rückläufig"
+                            )
+
+                    # ------------------------------------------------
+                    # 5. BEWERTUNG
+                    # ------------------------------------------------
+
                     if kgv is not None:
 
-                        if 0 < kgv <= 15:
-                            score += 10
-                            gruende.append("Günstiges KGV")
+                        if 0 < kgv <= 12:
+                            score += 8
+                            gruende.append(
+                                "Niedriges KGV"
+                            )
 
-                        elif 15 < kgv <= 25:
+                        elif 12 < kgv <= 20:
                             score += 5
-                            gruende.append("Moderates KGV")
+                            gruende.append(
+                                "Moderates KGV"
+                            )
 
-                    # Handelsliquidität
-                    if volumen is not None and volumen >= 500000:
-                        score += 5
-                        gruende.append("Gute Liquidität")
+                        elif kgv > 35:
+                            score -= 3
+                            warnungen.append(
+                                "Hohes KGV"
+                            )
 
-                    score = min(score, 100)
+                    if kuv is not None:
 
-                    # Unter 50 Punkten nicht anzeigen
+                        if 0 < kuv <= 1:
+                            score += 7
+                            gruende.append(
+                                "KUV unter 1"
+                            )
+
+                        elif 1 < kuv <= 2:
+                            score += 4
+                            gruende.append(
+                                "Moderates KUV"
+                            )
+
+                        elif kuv > 5:
+                            score -= 3
+                            warnungen.append(
+                                "Hohes KUV"
+                            )
+
+                    # ------------------------------------------------
+                    # 6. HANDELSLIQUIDITÄT
+                    # ------------------------------------------------
+
+                    if volumen is not None:
+
+                        if volumen >= 500000:
+                            score += 3
+
+                        elif volumen < 50000:
+                            score -= 3
+                            warnungen.append(
+                                "Geringes Handelsvolumen"
+                            )
+
+                    # Score begrenzen
+                    score = max(0, min(score, 100))
+
+                    # Nur interessante Kandidaten anzeigen
                     if score < 50:
                         continue
 
@@ -279,50 +528,80 @@ if bereich == "💰 Schnäppchen":
                     else:
                         bewertung = "🟡 Beobachten"
 
-                    def prozentwert(wert):
-                        if wert is None:
-                            return None
-                        return round(wert * 100, 1)
+                    # ------------------------------------------------
+                    # AUSGABE
+                    # ------------------------------------------------
 
                     kandidaten.append(
                         {
                             "Symbol": symbol,
-                            "Firma": info.get("shortName", symbol),
-                            f"Kurs {waehrung}": round(float(preis), 2),
+                            "Firma": info.get(
+                                "shortName",
+                                symbol
+                            ),
+                            f"Kurs {waehrung}": round(
+                                float(preis), 2
+                            ),
                             "Marktkap. Mio.": round(
-                                marketcap / 1_000_000, 1
+                                marketcap / 1_000_000,
+                                1
                             ),
-                            "KGV": (
-                                round(float(kgv), 1)
-                                if kgv is not None
-                                else None
+                            "Typ": (
+                                "🏦 Finanz"
+                                if finanzunternehmen
+                                else "🏢 Normal"
                             ),
-                            "Gewinn": (
-                                "✅"
-                                if netto is not None and netto > 0
-                                else "❌"
+                            "KGV": zahl(kgv),
+                            "KUV": zahl(kuv, 2),
+                            "Marge %": prozent(
+                                gewinnmarge
                             ),
-                            "Cash > Schulden": (
-                                "✅"
-                                if cash is not None
-                                and schulden is not None
-                                and cash > schulden
-                                else "❌"
+                            "ROE %": prozent(
+                                roe
                             ),
-                            "Cashflow": (
-                                "✅"
-                                if cashflow is not None and cashflow > 0
-                                else "❌"
-                            ),
-                            "Umsatzwachstum %": prozentwert(
+                            "Umsatzwachstum %": prozent(
                                 umsatzwachstum
                             ),
-                            "Gewinnwachstum %": prozentwert(
+                            "Gewinnwachstum %": prozent(
                                 gewinnwachstum
+                            ),
+                            "Free Cashflow": (
+                                "➖"
+                                if finanzunternehmen
+                                or free_cashflow is None
+                                else (
+                                    "✅"
+                                    if free_cashflow > 0
+                                    else "❌"
+                                )
+                            ),
+                            "Cash > Schulden": (
+                                "➖"
+                                if finanzunternehmen
+                                or cash is None
+                                or schulden is None
+                                else (
+                                    "✅"
+                                    if cash > schulden
+                                    else "❌"
+                                )
+                            ),
+                            "Debt/Equity": (
+                                None
+                                if finanzunternehmen
+                                else zahl(
+                                    debt_equity,
+                                    1
+                                )
                             ),
                             "Score": score,
                             "Bewertung": bewertung,
-                            "Warum interessant?": ", ".join(gruende)
+                            "Stärken": ", ".join(
+                                gruende
+                            ),
+                            "Risiken": ", ".join(
+                                warnungen
+                            )
                         }
                     )
 
@@ -330,6 +609,7 @@ if bereich == "💰 Schnäppchen":
                     pass
 
                 finally:
+
                     progress.progress(
                         (nummer + 1) / len(quotes)
                     )
@@ -351,16 +631,20 @@ if bereich == "💰 Schnäppchen":
 
                 df = df.head(max_treffer)
 
-                top = df[df["Score"] >= 75]
+                top = df[
+                    df["Score"] >= 75
+                ]
 
                 beobachten = df[
-                    (df["Score"] >= 50) &
-                    (df["Score"] < 75)
+                    (df["Score"] >= 50)
+                    & (df["Score"] < 75)
                 ]
 
                 if not top.empty:
 
-                    st.subheader("🟢 Top-Kandidaten")
+                    st.subheader(
+                        "🟢 Top-Kandidaten"
+                    )
 
                     st.dataframe(
                         top,
@@ -370,7 +654,9 @@ if bereich == "💰 Schnäppchen":
 
                 if not beobachten.empty:
 
-                    st.subheader("🟡 Beobachtungsliste")
+                    st.subheader(
+                        "🟡 Beobachtungsliste"
+                    )
 
                     st.dataframe(
                         beobachten,
@@ -379,10 +665,10 @@ if bereich == "💰 Schnäppchen":
                     )
 
                 st.caption(
-                    "Der Score ist ein automatischer Vorfilter und "
-                    "keine Kaufempfehlung. Die Fundamentaldaten stammen "
-                    "von Yahoo Finance und sollten vor einer Anlageentscheidung "
-                    "überprüft werden."
+                    "Der Score ist ein automatischer Vorfilter "
+                    "und keine Kaufempfehlung. Yahoo-Finance-Daten "
+                    "können fehlen oder fehlerhaft sein und sollten "
+                    "vor einer Anlageentscheidung überprüft werden."
                 )
 
             else:
@@ -402,13 +688,15 @@ elif bereich == "🧬 Biotech-Perlen":
     st.header("🧬 Biotech-Perlen")
 
     st.write(
-        "Hier suchen wir gezielt nach kleinen Biotech-Unternehmen "
-        "mit interessanter Pipeline."
+        "Biotech-Unternehmen erhalten später einen eigenen Score, "
+        "weil Gewinn und KGV bei Entwicklungsfirmen oft wenig "
+        "aussagekräftig sind."
     )
 
     st.info(
-        "📅 Nächster Ausbau: FDA-/PDUFA-Termine, klinische Studien, "
-        "Cash-Runway, Pipeline und Verwässerungsrisiko."
+        "📅 Geplant: FDA-/PDUFA-Termine, klinische Studien, "
+        "Pipeline, Cash-Runway, Partnerschaften und "
+        "Verwässerungsrisiko."
     )
 
 
@@ -421,11 +709,11 @@ elif bereich == "🚀 Space / SpaceX":
     st.header("🚀 Space / SpaceX-Chancen")
 
     st.write(
-        "Hier suchen wir nach börsennotierten Unternehmen aus "
-        "Raumfahrt, Satelliten und dem SpaceX-/Starlink-Umfeld."
+        "Hier suchen wir später nach börsennotierten Unternehmen "
+        "aus Raumfahrt, Satelliten und dem SpaceX-/Starlink-Umfeld."
     )
 
     st.info(
         "🚀 Geplant: SpaceX-/Starlink-Bezug, Aufträge, "
-        "Umsatzwachstum, Gewinn, Cash und Verschuldung."
+        "Umsatzwachstum, Cash, Verschuldung und Bewertung."
     )
