@@ -957,6 +957,25 @@ elif bereich == "🧬 Biotech-Perlen":
 
     st.caption("Cash-Runway-Ampel: 🟢 ab 2 Jahren · 🟡 1 bis unter 2 Jahre · 🔴 unter 1 Jahr · ⚪ Daten fehlen oder FCF nicht negativ. Die Ampel bewertet nur die geschätzte Liquiditätsreichweite, nicht die Aktie insgesamt.")
 
+    def schulden_ampel(cash, debt):
+        """App-eigene Schwellen, kein Kreditrating oder Gesamturteil."""
+        cash, debt = finite_number(cash), finite_number(debt)
+        if cash is None or debt is None or cash < 0 or debt < 0:
+            return "⚪ Daten fehlen / ungültig", None
+        if debt == 0:
+            return "🟢 Keine gemeldeten Schulden", 0.0 if cash > 0 else None
+        if cash == 0:
+            return "🔴 Schulden bei Cash = 0", None
+        ratio = debt / cash
+        if ratio <= 1:
+            return "🟢 Schulden höchstens Cash", ratio
+        if ratio <= 2:
+            return "🟡 Schulden >1–2× Cash", ratio
+        return "🔴 Schulden über 2× Cash", ratio
+
+    st.caption("Schuldenampel (eigene, grobe Schwellen): 🟢 Schulden höchstens Cash · 🟡 über 1 bis 2× Cash · 🔴 über 2× Cash oder Schulden bei Cash = 0 · ⚪ Daten fehlen/ungültig. Keine gemeldeten Schulden werden separat grün markiert.")
+    st.info("Beide Ampeln bewerten einzelne Kennzahlen. Schuldenfälligkeiten werden nicht abgerufen; es gibt daher keine grüne Gesamtbewertung. Eine grüne Schuldenampel bedeutet nicht, dass das Unternehmen ausreichend Cash für den Betrieb hat.")
+
     def runway(cash, fcf):
         if fcf is None:
             return None, "FCF fehlt"
@@ -1012,9 +1031,11 @@ elif bereich == "🧬 Biotech-Perlen":
                     debt = finite_number(info.get("totalDebt"))
                     fcf = finite_number(info.get("freeCashflow"))
                     years, status = runway(cash, fcf)
+                    debt_light, debt_ratio = schulden_ampel(cash, debt)
                     dilution = verwasserung_berechnen(ticker)
                     ergebnisse.append({
                         "Runway-Ampel": runway_ampel(years),
+                        "Schulden-Ampel": debt_light,
                         "Symbol": symbol,
                         "Firma": info.get("shortName") or quote.get("shortName") or symbol,
                         f"Kurs {kurswaehrung}": round(price, 2),
@@ -1022,6 +1043,7 @@ elif bereich == "🧬 Biotech-Perlen":
                         "Bilanzwährung": info.get("financialCurrency") or "k.A.",
                         "Cash Mio.": zahl(cash / 1_000_000) if cash is not None else None,
                         "Schulden Mio.": zahl(debt / 1_000_000) if debt is not None else None,
+                        "Schulden / Cash (×)": zahl(debt_ratio, 2),
                         "Free Cashflow Mio.": zahl(fcf / 1_000_000) if fcf is not None else None,
                         "Cash-Runway Jahre": zahl(years, 2),
                         "Runway-Hinweis": status,
