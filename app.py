@@ -1066,5 +1066,128 @@ elif bereich == "🧬 Biotech-Perlen":
     st.caption("Aktienzahl 1J: ungefähre Veränderung ausstehenden Kapitals anhand historischer Aktienzahlen. Positive Werte zeigen mehr Aktien; Splits, ADR-Änderungen und Datenfehler können den Vergleich verzerren. Fehlende oder zu alte Daten bleiben leer. Kein Biotech-Score und keine Kaufempfehlung.")
 
 elif bereich == "🚀 Space / SpaceX":
-    st.header("🚀 Space / SpaceX-Chancen")
-    st.info("Platzhalter: Der Space-/SpaceX-Bereich wird später ergänzt.")
+    st.header("🚀 Space-Unternehmen")
+    st.write("Börsennotierte Raumfahrt- und Satellitenunternehmen mit Cash-Runway, Schuldenampel und Aktienzahlveränderung.")
+    kurswaehrung = "USD"
+    st.caption("Markt: USA. Startliste: Rocket Lab (RKLB), Redwire (RDW), Intuitive Machines (LUNR), Planet Labs (PL). Kein vollständiger Marktscan. Für die Schweiz ist noch keine Space-Auswahlliste hinterlegt.")
+    st.info("Die Aufnahme in diese Liste bedeutet keinen belegten SpaceX-/Starlink-Bezug. SpaceX selbst sowie Aufträge und Partnerschaften werden hier noch nicht ausgewertet.")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        max_preis = st.number_input(f"Maximaler Aktienkurs ({kurswaehrung})", min_value=0.5, max_value=1000.0, value=100.0, step=0.5)
+    with col2:
+        min_mcap = st.number_input(f"Mindest-Marktkapitalisierung (Mio. {kurswaehrung})", min_value=1, max_value=10000, value=50, step=10)
+    with col3:
+        max_treffer = st.slider("Max. Treffer", 5, 50, 20, 5)
+    st.caption("Kurs ab 0,50 USD bis einschließlich Obergrenze. Für günstigere Titel kannst du den maximalen Kurs auf 5 USD senken.")
+    st.info("Runway = Cash / Betrag des negativen jährlichen Free Cashflows. Grobe Schätzung bei gleichbleibendem Verbrauch; Schuldenfälligkeiten und künftige Projektkosten sind nicht berücksichtigt. Auftragsbestand, Starttermine und Projektrisiken sind noch nicht bewertet.")
+
+    def finite_number(value):
+        try:
+            result = float(value)
+            return result if math.isfinite(result) else None
+        except (ValueError, TypeError):
+            return None
+
+    def runway_ampel(years):
+        if years is None or not math.isfinite(years) or years < 0:
+            return "⚪ Nicht berechenbar"
+        if years >= 2:
+            return "🟢 Ab 2 Jahren"
+        if years >= 1:
+            return "🟡 1 bis unter 2 Jahre"
+        return "🔴 Unter 1 Jahr"
+
+    st.caption("Cash-Runway-Ampel: 🟢 ab 2 Jahren · 🟡 1 bis unter 2 Jahre · 🔴 unter 1 Jahr · ⚪ Daten fehlen oder FCF nicht negativ. Die Ampel bewertet nur die geschätzte Liquiditätsreichweite, nicht die Aktie insgesamt.")
+
+    def schulden_ampel(cash, debt):
+        """App-eigene Schwellen, kein Kreditrating oder Gesamturteil."""
+        cash, debt = finite_number(cash), finite_number(debt)
+        if cash is None or debt is None or cash < 0 or debt < 0:
+            return "⚪ Daten fehlen / ungültig", None
+        if debt == 0:
+            return "🟢 Keine gemeldeten Schulden", 0.0 if cash > 0 else None
+        if cash == 0:
+            return "🔴 Schulden bei Cash = 0", None
+        ratio = debt / cash
+        if ratio <= 1:
+            return "🟢 Schulden höchstens Cash", ratio
+        if ratio <= 2:
+            return "🟡 Schulden >1–2× Cash", ratio
+        return "🔴 Schulden über 2× Cash", ratio
+
+    st.caption("Schuldenampel (eigene, grobe Schwellen): 🟢 Schulden höchstens Cash · 🟡 über 1 bis 2× Cash · 🔴 über 2× Cash oder Schulden bei Cash = 0 · ⚪ Daten fehlen/ungültig. Keine gemeldeten Schulden werden separat grün markiert.")
+    st.info("Beide Ampeln bewerten einzelne Kennzahlen. Schuldenfälligkeiten werden nicht abgerufen; es gibt daher keine grüne Gesamtbewertung. Eine grüne Schuldenampel bedeutet nicht, dass das Unternehmen ausreichend Cash für den Betrieb hat.")
+
+    def runway(cash, fcf):
+        if fcf is None:
+            return None, "FCF fehlt"
+        if fcf >= 0:
+            return None, "FCF nicht negativ; keine Runway ableitbar"
+        if cash is None or cash < 0:
+            return None, "Cash fehlt / ungültig"
+        years = cash / abs(fcf)
+        return years, "Unter 1 Jahr" if years < 1 else "Aus negativem FCF geschätzt"
+
+    if st.button("🔎 Space-Unternehmen suchen", type="primary"):
+        ergebnisse, fehler_liste = [], []
+        try:
+            with st.spinner("Space-Unternehmen werden gesucht und analysiert …"):
+                quotes = [{"symbol": symbol} for symbol in ["RKLB", "RDW", "LUNR", "PL"]]
+                for quote in quotes:
+                    symbol = quote.get("symbol")
+                    if not symbol:
+                        continue
+                    ticker = yf.Ticker(symbol)
+                    try:
+                        info = ticker.info or {}
+                    except Exception as error:
+                        info = {}
+                        fehler_liste.append(f"{symbol}: {error}")
+                    price = finite_number(info.get("currentPrice"))
+                    if price is None:
+                        price = finite_number(info.get("regularMarketPrice"))
+                    mcap = finite_number(info.get("marketCap"))
+                    if info.get("currency") != "USD":
+                        fehler_liste.append(f"{symbol}: USD-Kurswährung nicht bestätigt")
+                        continue
+                    if price is None or mcap is None:
+                        fehler_liste.append(f"{symbol}: Kurs oder Marktkapitalisierung fehlt")
+                        continue
+                    if not (0.5 <= price <= max_preis) or mcap < min_mcap * 1_000_000:
+                        continue
+                    cash = finite_number(info.get("totalCash"))
+                    debt = finite_number(info.get("totalDebt"))
+                    fcf = finite_number(info.get("freeCashflow"))
+                    years, status = runway(cash, fcf)
+                    debt_light, debt_ratio = schulden_ampel(cash, debt)
+                    dilution = verwasserung_berechnen(ticker)
+                    ergebnisse.append({
+                        "Runway-Ampel": runway_ampel(years),
+                        "Schulden-Ampel": debt_light,
+                        "Symbol": symbol,
+                        "Firma": info.get("shortName") or quote.get("shortName") or symbol,
+                        f"Kurs {kurswaehrung}": round(price, 2),
+                        f"Marktkap. Mio. {kurswaehrung}": round(mcap / 1_000_000, 1),
+                        "Bilanzwährung": info.get("financialCurrency") or "k.A.",
+                        "Cash Mio.": zahl(cash / 1_000_000) if cash is not None else None,
+                        "Schulden Mio.": zahl(debt / 1_000_000) if debt is not None else None,
+                        "Schulden / Cash (×)": zahl(debt_ratio, 2),
+                        "Free Cashflow Mio.": zahl(fcf / 1_000_000) if fcf is not None else None,
+                        "Cash-Runway Jahre": zahl(years, 2),
+                        "Runway-Hinweis": status,
+                        "Aktienzahl 1J %": dilution,
+                        "Börse": info.get("exchange") or quote.get("exchange", "k.A."),
+                    })
+            if ergebnisse:
+                st.dataframe(pd.DataFrame(ergebnisse).sort_values(f"Marktkap. Mio. {kurswaehrung}", ascending=False).head(max_treffer), use_container_width=True, hide_index=True)
+            else:
+                st.warning("Kein Treffer in der festen Auswahl. Prüfe die Kursobergrenze und Mindest-Marktkapitalisierung. Mit diesen Einstellungen wurden keine Space-Unternehmen gefunden.")
+            if fehler_liste:
+                st.warning("Bei einigen Titeln fehlen Daten. Leere Werte bedeuten unbekannt, nicht null.")
+                with st.expander("Datenfehler anzeigen"):
+                    st.write(fehler_liste)
+        except Exception as error:
+            st.error(f"Space-Suche derzeit nicht verfügbar: {error}")
+    st.caption("Cash, Schulden und FCF sind in der jeweiligen Bilanzwährung angegeben. Cash-Runway verwendet dieselbe Währung für Zähler und Nenner. Yahoo kann unterschiedliche Berichtsstände liefern; FCF ist die von Yahoo gelieferte jährliche Kennzahl, keine Prognose.")
+    st.caption("Aktienzahl 1J: ungefähre Veränderung ausstehenden Kapitals anhand historischer Aktienzahlen. Positive Werte zeigen mehr Aktien; Splits, ADR-Änderungen und Datenfehler können den Vergleich verzerren. Fehlende oder zu alte Daten bleiben leer. Kein Space-Score und keine Kaufempfehlung.")
+
