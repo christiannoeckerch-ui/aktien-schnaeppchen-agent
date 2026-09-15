@@ -45,6 +45,41 @@ def kursauswahl(waehrung, key):
     return grenze
 
 
+def finanz_einstufung(years, cash, debt, dilution):
+    """Transparenter Finanzvorfilter, kein Gesamturteil über das Unternehmen."""
+    hinweise = []
+    if years is None or not math.isfinite(years):
+        hinweise.append("Cash-Reichweite nicht berechenbar")
+    elif years < 2:
+        hinweise.append("Cash-Reichweite unter 2 Jahren")
+    if (cash is None or debt is None or not math.isfinite(cash)
+            or not math.isfinite(debt) or cash <= 0 or debt < 0):
+        hinweise.append("Cash-/Schuldendaten fehlen oder sind nicht ausreichend")
+    elif debt > cash:
+        hinweise.append("Schulden über Cash")
+    if dilution is None or not math.isfinite(dilution):
+        hinweise.append("Aktienzahlvergleich fehlt")
+    elif dilution > 5:
+        hinweise.append("Aktienzahlzuwachs über 5 %")
+    if hinweise:
+        return "Beobachten", "; ".join(hinweise)
+    return "Top-Kandidat", "Runway ≥2 Jahre; Schulden ≤Cash; Aktienzahlzuwachs ≤5 %"
+
+
+def themen_ergebnisse(ergebnisse, kurswaehrung, max_treffer):
+    st.caption("Vorläufiger Finanzvorfilter: Top-Kandidat nur bei berechenbarer Cash-Reichweite ab 2 Jahren, positivem Cash, Schulden höchstens Cash und Aktienzahlzuwachs höchstens 5 %. Sonst Beobachten, auch bei fehlenden Daten oder nicht negativem FCF. Kein Gesamturteil: Schuldenfälligkeiten, Bewertung und Geschäftsrisiken sind nicht geprüft.")
+    frame = pd.DataFrame(ergebnisse)
+    frame["_rang"] = frame["Einstufung"].map({"Top-Kandidat": 0, "Beobachten": 1})
+    frame = frame.sort_values(["_rang", f"Marktkap. Mio. {kurswaehrung}"], ascending=[True, False]).head(max_treffer).drop(columns="_rang")
+    for einstufung, titel in [("Top-Kandidat", "Top-Kandidaten · Finanzvorfilter"), ("Beobachten", "Beobachten")]:
+        teil = frame[frame["Einstufung"] == einstufung]
+        st.subheader(f"{titel} ({len(teil)})")
+        if teil.empty:
+            st.write("Keine Treffer in dieser Gruppe.")
+        else:
+            st.dataframe(teil, use_container_width=True, hide_index=True)
+
+
 def prozent(wert):
     if wert is None:
         return None
@@ -1046,7 +1081,10 @@ elif bereich == "🧬 Biotech-Perlen":
                     years, status = runway(cash, fcf)
                     debt_light, debt_ratio = schulden_ampel(cash, debt)
                     dilution = verwasserung_berechnen(ticker)
+                    einstufung, grund = finanz_einstufung(years, cash, debt, dilution)
                     ergebnisse.append({
+                        "Einstufung": einstufung,
+                        "Einstufungsgrund": grund,
                         "Runway-Ampel": runway_ampel(years),
                         "Schulden-Ampel": debt_light,
                         "Symbol": symbol,
@@ -1063,10 +1101,8 @@ elif bereich == "🧬 Biotech-Perlen":
                         "Aktienzahl 1J %": dilution,
                         "Börse": info.get("exchange") or quote.get("exchange", "k.A."),
                     })
-                    if not biotech_ch and len(ergebnisse) >= max_treffer:
-                        break
             if ergebnisse:
-                st.dataframe(pd.DataFrame(ergebnisse).sort_values(f"Marktkap. Mio. {kurswaehrung}", ascending=False).head(max_treffer), use_container_width=True, hide_index=True)
+                themen_ergebnisse(ergebnisse, kurswaehrung, max_treffer)
             else:
                 st.warning("Mit diesen Einstellungen wurden keine Biotech-Unternehmen gefunden.")
             if fehler_liste:
@@ -1191,7 +1227,10 @@ elif bereich == "🚀 Space / Rechenzentren":
                     years, status = runway(cash, fcf)
                     debt_light, debt_ratio = schulden_ampel(cash, debt)
                     dilution = None if symbol == "CNTL.SW" else verwasserung_berechnen(ticker)
+                    einstufung, grund = finanz_einstufung(years, cash, debt, dilution)
                     ergebnisse.append({
+                        "Einstufung": einstufung,
+                        "Einstufungsgrund": grund,
                         "Runway-Ampel": runway_ampel(years),
                         "Schulden-Ampel": debt_light,
                         "Symbol": symbol,
@@ -1212,7 +1251,7 @@ elif bereich == "🚀 Space / Rechenzentren":
                         "Börse": info.get("exchange") or quote.get("exchange", "k.A."),
                     })
             if ergebnisse:
-                st.dataframe(pd.DataFrame(ergebnisse).sort_values(f"Marktkap. Mio. {kurswaehrung}", ascending=False).head(max_treffer), use_container_width=True, hide_index=True)
+                themen_ergebnisse(ergebnisse, kurswaehrung, max_treffer)
             else:
                 st.warning("Kein Treffer in der festen Auswahl. Prüfe die Kursobergrenze und Mindest-Marktkapitalisierung. Mit diesen Einstellungen wurden keine Space-/Rechenzentren-Unternehmen gefunden.")
             if fehler_liste:
