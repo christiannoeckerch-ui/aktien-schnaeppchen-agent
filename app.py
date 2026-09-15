@@ -998,46 +998,169 @@ elif bereich == "🧬 Biotech-Perlen":
 
                 for aktie in quotes:
 
-                    symbol = aktie.get("symbol")
-                    boerse = aktie.get("exchange")
+    symbol = aktie.get("symbol")
+    boerse = aktie.get("exchange")
 
-                    if not symbol:
-                        continue
+    if not symbol:
+        continue
 
-                    if boerse not in erlaubte_boersen:
-                        continue
+    if boerse not in erlaubte_boersen:
+        continue
 
-                    preis = aktie.get("regularMarketPrice")
-                    if preis is None:
-                        preis = aktie.get("intradayprice")
+    preis = aktie.get("regularMarketPrice")
+    if preis is None:
+        preis = aktie.get("intradayprice")
 
-                    mcap = aktie.get("marketCap")
-                    if mcap is None:
-                        mcap = aktie.get("intradaymarketcap")
+    mcap = aktie.get("marketCap")
+    if mcap is None:
+        mcap = aktie.get("intradaymarketcap")
 
-                    ergebnisse.append(
-                        {
-                            "Symbol": symbol,
-                            "Firma": aktie.get(
-                                "shortName",
-                                aktie.get("longName", "")
-                            ),
-                            "Kurs $": (
-                                round(preis, 2)
-                                if isinstance(preis, (int, float))
-                                else None
-                            ),
-                            "Marktkap. Mio. $": (
-                                round(mcap / 1_000_000, 1)
-                                if isinstance(mcap, (int, float))
-                                else None
-                            ),
-                            "Börse": boerse
-                        }
+    # --------------------------------------------
+    # Zusätzliche Biotech-Finanzdaten
+    # --------------------------------------------
+
+    cash = None
+    schulden = None
+    free_cashflow = None
+    cash_runway = None
+    verwasserung = None
+
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+
+        cash = info.get("totalCash")
+        schulden = info.get("totalDebt")
+        free_cashflow = info.get("freeCashflow")
+
+        # Cash-Runway:
+        # Bei negativem FCF wird geschätzt, wie viele Jahre
+        # der vorhandene Cash bei gleichem Verbrauch reicht.
+        if (
+            isinstance(cash, (int, float))
+            and isinstance(free_cashflow, (int, float))
+            and cash > 0
+            and free_cashflow < 0
+        ):
+            cash_runway = cash / abs(free_cashflow)
+
+        elif (
+            isinstance(free_cashflow, (int, float))
+            and free_cashflow >= 0
+        ):
+            cash_runway = 99.0
+
+        # Veränderung der ausstehenden Aktien über ca. 1 Jahr
+        try:
+            shares = ticker.get_shares_full(
+                start=(
+                    pd.Timestamp.today()
+                    - pd.DateOffset(years=2)
+                ).strftime("%Y-%m-%d")
+            )
+
+            if shares is not None and len(shares) > 1:
+
+                shares = shares.dropna().sort_index()
+
+                if len(shares) > 1:
+
+                    aktuelles_datum = shares.index[-1]
+                    ziel_datum = (
+                        aktuelles_datum
+                        - pd.DateOffset(years=1)
                     )
 
-                    if len(ergebnisse) >= biotech_max_treffer:
-                        break
+                    alte_daten = shares[
+                        shares.index <= ziel_datum
+                    ]
+
+                    if len(alte_daten) > 0:
+
+                        alte_aktien = float(
+                            alte_daten.iloc[-1]
+                        )
+
+                        neue_aktien = float(
+                            shares.iloc[-1]
+                        )
+
+                        if alte_aktien > 0:
+                            verwasserung = (
+                                (
+                                    neue_aktien
+                                    / alte_aktien
+                                )
+                                - 1
+                            ) * 100
+
+        except Exception:
+            verwasserung = None
+
+    except Exception:
+        pass
+
+    # --------------------------------------------
+    # Darstellung
+    # --------------------------------------------
+
+    if isinstance(cash_runway, (int, float)):
+        if cash_runway >= 99:
+            runway_text = "FCF positiv"
+        else:
+            runway_text = f"{cash_runway:.1f} Jahre"
+    else:
+        runway_text = "k.A."
+
+    if isinstance(verwasserung, (int, float)):
+        verwasserung_text = f"{verwasserung:+.1f} %"
+    else:
+        verwasserung_text = "k.A."
+
+    if isinstance(cash, (int, float)):
+        cash_mio = round(cash / 1_000_000, 1)
+    else:
+        cash_mio = None
+
+    if isinstance(schulden, (int, float)):
+        schulden_mio = round(
+            schulden / 1_000_000,
+            1
+        )
+    else:
+        schulden_mio = None
+
+    # --------------------------------------------
+    # Ergebnis speichern
+    # --------------------------------------------
+
+    ergebnisse.append(
+        {
+            "Symbol": symbol,
+            "Firma": aktie.get(
+                "shortName",
+                aktie.get("longName", "")
+            ),
+            "Kurs $": (
+                round(preis, 2)
+                if isinstance(preis, (int, float))
+                else None
+            ),
+            "Marktkap. Mio. $": (
+                round(mcap / 1_000_000, 1)
+                if isinstance(mcap, (int, float))
+                else None
+            ),
+            "Cash Mio. $": cash_mio,
+            "Schulden Mio. $": schulden_mio,
+            "Cash-Runway": runway_text,
+            "Aktienzahl 1J": verwasserung_text,
+            "Börse": boerse
+        }
+    )
+
+    if len(ergebnisse) >= biotech_max_treffer:
+        break
 
                 if ergebnisse:
 
