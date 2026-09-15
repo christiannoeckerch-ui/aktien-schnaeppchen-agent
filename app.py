@@ -71,12 +71,13 @@ def themen_ergebnisse(ergebnisse, kurswaehrung, max_treffer):
     frame = pd.DataFrame(ergebnisse)
     frame["_rang"] = frame["Einstufung"].map({"Top-Kandidat": 0, "Beobachten": 1})
     frame = frame.sort_values(["_rang", f"Marktkap. Mio. {kurswaehrung}"], ascending=[True, False]).head(max_treffer).drop(columns="_rang")
-    for einstufung, titel in [("Top-Kandidat", "Top-Kandidaten · Finanzvorfilter"), ("Beobachten", "Beobachten")]:
-        teil = frame[frame["Einstufung"] == einstufung]
+    for einstufung, titel, punkt in [("Top-Kandidat", "🟢 Top-Kandidaten · Finanzvorfilter", "🟢"), ("Beobachten", "🟡 Beobachten", "🟡")]:
+        teil = frame[frame["Einstufung"] == einstufung].copy()
         st.subheader(f"{titel} ({len(teil)})")
         if teil.empty:
             st.write("Keine Treffer in dieser Gruppe.")
         else:
+            teil["Einstufung"] = punkt + " " + teil["Einstufung"]
             st.dataframe(teil, use_container_width=True, hide_index=True)
 
 
