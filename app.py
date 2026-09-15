@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import math
 
 st.set_page_config(
     page_title="Aktien-Schnäppchen-Agent",
@@ -64,7 +65,9 @@ def verwasserung_berechnen(ticker):
         if shares is None or len(shares) < 2:
             return None
 
-        shares = shares.dropna().sort_index()
+        shares = pd.to_numeric(shares, errors="coerce").dropna().sort_index()
+        shares = shares[~shares.index.duplicated(keep="last")]
+        shares = shares[shares.map(lambda value: math.isfinite(value) and value > 0)]
 
         if len(shares) < 2:
             return None
@@ -81,6 +84,12 @@ def verwasserung_berechnen(ticker):
         if alte_daten.empty:
             return None
 
+        # Avoid labelling stale or widely spaced observations as a 1-year change.
+        heute = pd.Timestamp.now(tz=aktuelles_datum.tz)
+        if (heute - aktuelles_datum).days > 120:
+            return None
+        if (ziel_datum - alte_daten.index[-1]).days > 90:
+            return None
         vorjahr = float(alte_daten.iloc[-1])
 
         if vorjahr <= 0:
@@ -149,9 +158,11 @@ if bereich == "💰 Schnäppchen":
         "🟡 Beobachten = 50–74 Punkte"
     )
 
+    st.caption("USA: maximal 250 Kandidaten nach Marktkapitalisierung; Schweiz: feste Auswahlliste aus 5 Titeln, kein vollständiger Marktscan. Finanzunternehmen erhalten keine Cashflow- oder Bilanzpunkte; ihre Scores sind daher nur eingeschränkt vergleichbar.")
     if st.button("🔎 Schnäppchen suchen", type="primary"):
 
         kandidaten = []
+        analyse_fehler = []
 
         # --------------------------------------------------------
         # AKTIENUNIVERSUM
@@ -163,6 +174,7 @@ if bereich == "💰 Schnäppchen":
                 query = yf.EquityQuery(
                     "and",
                     [
+                        yf.EquityQuery("is-in", ["exchange", "NMS", "NGM", "NCM", "NYQ", "ASE"]),
                         yf.EquityQuery(
                             "gte",
                             ["intradayprice", 0.50]
@@ -478,13 +490,13 @@ if bereich == "💰 Schnäppchen":
 
                         if debt_equity is not None:
 
-                            if debt_equity <= 50:
+                            if 0 <= debt_equity <= 50:
                                 score += 5
                                 gruende.append(
                                     "Niedrige Verschuldung"
                                 )
 
-                            elif debt_equity > 150:
+                            elif debt_equity < 0 or debt_equity > 150:
                                 score -= 6
                                 warnungen.append(
                                     "Hohe Verschuldung"
@@ -806,8 +818,8 @@ if bereich == "💰 Schnäppchen":
                         }
                     )
 
-                except Exception:
-                    pass
+                except Exception as fehler:
+                    analyse_fehler.append(f"{symbol}: {fehler}")
 
                 finally:
 
@@ -817,6 +829,10 @@ if bereich == "💰 Schnäppchen":
                     )
 
             progress.empty()
+            if analyse_fehler:
+                st.warning(f"{len(analyse_fehler)} Aktien konnten nicht vollständig analysiert werden.")
+                with st.expander("Datenfehler anzeigen"):
+                    st.write(analyse_fehler)
 
             # ====================================================
             # ERGEBNIS
@@ -905,314 +921,99 @@ if bereich == "💰 Schnäppchen":
 # ============================================================
 
 elif bereich == "🧬 Biotech-Perlen":
-
     st.header("🧬 Biotech-Perlen")
-
-    st.write(
-        "Hier suchen wir gezielt nach kleineren US-Biotech-Unternehmen. "
-        "Bei Entwicklungsfirmen sind Gewinn und KGV oft wenig aussagekräftig. "
-        "Deshalb verwenden wir später einen eigenen Biotech-Score."
-    )
-
+    st.write("US-börsennotierte Biotech-Unternehmen mit Cash, Schulden, grobem Cash-Runway und Veränderung der Aktienzahl.")
     col1, col2, col3 = st.columns(3)
-
     with col1:
-        biotech_max_preis = st.number_input(
-            "Maximaler Aktienkurs ($)",
-            min_value=1.0,
-            max_value=50.0,
-            value=5.0,
-            step=1.0
-        )
-
+        max_preis = st.number_input("Maximaler Aktienkurs (USD)", min_value=0.5, max_value=100.0, value=5.0, step=0.5)
     with col2:
-        biotech_min_mcap = st.number_input(
-            "Mindest-Marktkapitalisierung (Mio. $)",
-            min_value=10,
-            max_value=5000,
-            value=50,
-            step=10
-        )
-
+        min_mcap = st.number_input("Mindest-Marktkapitalisierung (Mio. USD)", min_value=1, max_value=10000, value=50, step=10)
     with col3:
-        biotech_max_treffer = st.slider(
-            "Max. Treffer",
-            min_value=5,
-            max_value=50,
-            value=20,
-            step=5
-        )
+        max_treffer = st.slider("Max. Treffer", 5, 50, 20, 5)
+    st.caption("Kurs ab 0,50 USD, einschließlich der eingestellten Obergrenze. Maximal 250 Suchkandidaten, nach Marktkapitalisierung absteigend. US-Notierung bedeutet nicht zwingend US-Firmensitz.")
+    st.info("Runway = Cash / Betrag des negativen jährlichen Free Cashflows. Grobe Schätzung bei gleichbleibendem Verbrauch; Schuldenfälligkeiten und künftige Studienkosten sind nicht berücksichtigt. Pipeline und klinische Termine sind noch nicht bewertet.")
 
-    st.info(
-        "🧪 Erste Stufe: Wir suchen echte US-Biotech-Aktien. "
-        "Cash-Runway, Pipeline, klinische Phase, FDA/PDUFA-Termine, "
-        "Partnerschaften und Verwässerungsrisiko ergänzen wir danach."
-    )
-
-    if st.button("🔎 Biotech-Perlen suchen"):
-
-        with st.spinner("Biotech-Unternehmen werden gesucht ..."):
-
-            try:
-
-                query = yf.EquityQuery(
-                    "and",
-                    [
-                        yf.EquityQuery(
-                            "eq",
-                            ["industry", "Biotechnology"]
-                        ),
-                        yf.EquityQuery(
-                            "lt",
-                            ["intradayprice", biotech_max_preis]
-                        ),
-                        yf.EquityQuery(
-                            "gt",
-                            [
-                                "intradaymarketcap",
-                                biotech_min_mcap * 1_000_000
-                            ]
-                        )
-                    ]
-                )
-
-                antwort = yf.screen(
-                    query,
-                    size=250,
-                    sortField="intradaymarketcap",
-                    sortAsc=False
-                )
-
-                quotes = antwort.get("quotes", [])
-
-                erlaubte_boersen = {
-                    "NMS",
-                    "NGM",
-                    "NCM",
-                    "NYQ",
-                    "ASE",
-                    "NAS"
-                }
-
-                ergebnisse = []
-
-                for aktie in quotes:
-
-    symbol = aktie.get("symbol")
-    boerse = aktie.get("exchange")
-
-    if not symbol:
-        continue
-
-    if boerse not in erlaubte_boersen:
-        continue
-
-    preis = aktie.get("regularMarketPrice")
-    if preis is None:
-        preis = aktie.get("intradayprice")
-
-    mcap = aktie.get("marketCap")
-    if mcap is None:
-        mcap = aktie.get("intradaymarketcap")
-
-    # --------------------------------------------
-    # Zusätzliche Biotech-Finanzdaten
-    # --------------------------------------------
-
-    cash = None
-    schulden = None
-    free_cashflow = None
-    cash_runway = None
-    verwasserung = None
-
-    try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-
-        cash = info.get("totalCash")
-        schulden = info.get("totalDebt")
-        free_cashflow = info.get("freeCashflow")
-
-        # Cash-Runway:
-        # Bei negativem FCF wird geschätzt, wie viele Jahre
-        # der vorhandene Cash bei gleichem Verbrauch reicht.
-        if (
-            isinstance(cash, (int, float))
-            and isinstance(free_cashflow, (int, float))
-            and cash > 0
-            and free_cashflow < 0
-        ):
-            cash_runway = cash / abs(free_cashflow)
-
-        elif (
-            isinstance(free_cashflow, (int, float))
-            and free_cashflow >= 0
-        ):
-            cash_runway = 99.0
-
-        # Veränderung der ausstehenden Aktien über ca. 1 Jahr
+    def finite_number(value):
         try:
-            shares = ticker.get_shares_full(
-                start=(
-                    pd.Timestamp.today()
-                    - pd.DateOffset(years=2)
-                ).strftime("%Y-%m-%d")
-            )
+            result = float(value)
+            return result if math.isfinite(result) else None
+        except (ValueError, TypeError):
+            return None
 
-            if shares is not None and len(shares) > 1:
+    def runway(cash, fcf):
+        if fcf is None:
+            return None, "FCF fehlt"
+        if fcf >= 0:
+            return None, "FCF nicht negativ; keine Runway ableitbar"
+        if cash is None or cash < 0:
+            return None, "Cash fehlt / ungültig"
+        years = cash / abs(fcf)
+        return years, "Unter 1 Jahr" if years < 1 else "Aus negativem FCF geschätzt"
 
-                shares = shares.dropna().sort_index()
-
-                if len(shares) > 1:
-
-                    aktuelles_datum = shares.index[-1]
-                    ziel_datum = (
-                        aktuelles_datum
-                        - pd.DateOffset(years=1)
-                    )
-
-                    alte_daten = shares[
-                        shares.index <= ziel_datum
-                    ]
-
-                    if len(alte_daten) > 0:
-
-                        alte_aktien = float(
-                            alte_daten.iloc[-1]
-                        )
-
-                        neue_aktien = float(
-                            shares.iloc[-1]
-                        )
-
-                        if alte_aktien > 0:
-                            verwasserung = (
-                                (
-                                    neue_aktien
-                                    / alte_aktien
-                                )
-                                - 1
-                            ) * 100
-
-        except Exception:
-            verwasserung = None
-
-    except Exception:
-        pass
-
-    # --------------------------------------------
-    # Darstellung
-    # --------------------------------------------
-
-    if isinstance(cash_runway, (int, float)):
-        if cash_runway >= 99:
-            runway_text = "FCF positiv"
-        else:
-            runway_text = f"{cash_runway:.1f} Jahre"
-    else:
-        runway_text = "k.A."
-
-    if isinstance(verwasserung, (int, float)):
-        verwasserung_text = f"{verwasserung:+.1f} %"
-    else:
-        verwasserung_text = "k.A."
-
-    if isinstance(cash, (int, float)):
-        cash_mio = round(cash / 1_000_000, 1)
-    else:
-        cash_mio = None
-
-    if isinstance(schulden, (int, float)):
-        schulden_mio = round(
-            schulden / 1_000_000,
-            1
-        )
-    else:
-        schulden_mio = None
-
-    # --------------------------------------------
-    # Ergebnis speichern
-    # --------------------------------------------
-
-    ergebnisse.append(
-        {
-            "Symbol": symbol,
-            "Firma": aktie.get(
-                "shortName",
-                aktie.get("longName", "")
-            ),
-            "Kurs $": (
-                round(preis, 2)
-                if isinstance(preis, (int, float))
-                else None
-            ),
-            "Marktkap. Mio. $": (
-                round(mcap / 1_000_000, 1)
-                if isinstance(mcap, (int, float))
-                else None
-            ),
-            "Cash Mio. $": cash_mio,
-            "Schulden Mio. $": schulden_mio,
-            "Cash-Runway": runway_text,
-            "Aktienzahl 1J": verwasserung_text,
-            "Börse": boerse
-        }
-    )
-
-    if len(ergebnisse) >= biotech_max_treffer:
-        break
-
-                if ergebnisse:
-
-                    df_biotech = pd.DataFrame(ergebnisse)
-
-                    st.subheader("🧬 Gefundene Biotech-Kandidaten")
-
-                    st.dataframe(
-                        df_biotech,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                    st.caption(
-                        "Diese Liste ist noch keine Kaufempfehlung. "
-                        "Im nächsten Ausbau bewerten wir Cash-Runway, "
-                        "klinische Pipeline, FDA/PDUFA-Katalysatoren, "
-                        "Partnerschaften und Verwässerung."
-                    )
-
-                else:
-
-                    st.warning(
-                        "Mit diesen Einstellungen wurden keine "
-                        "Biotech-Unternehmen gefunden."
-                    )
-
-            except Exception as fehler:
-
-                st.error(
-                    f"Fehler bei der Biotech-Suche: {fehler}"
-                )
-
-
-# ============================================================
-# SPACE
-# ============================================================
+    if st.button("🔎 Biotech-Perlen suchen", type="primary"):
+        ergebnisse, fehler_liste = [], []
+        try:
+            with st.spinner("Biotech-Unternehmen werden gesucht und analysiert …"):
+                query = yf.EquityQuery("and", [
+                    yf.EquityQuery("eq", ["industry", "Biotechnology"]),
+                    yf.EquityQuery("is-in", ["exchange", "NMS", "NGM", "NCM", "NYQ", "ASE"]),
+                    yf.EquityQuery("gte", ["intradayprice", 0.5]),
+                    yf.EquityQuery("lte", ["intradayprice", max_preis]),
+                    yf.EquityQuery("gte", ["intradaymarketcap", min_mcap * 1_000_000]),
+                ])
+                response = yf.screen(query, size=250, sortField="intradaymarketcap", sortAsc=False)
+                quotes = response.get("quotes", [])
+                for quote in quotes:
+                    symbol = quote.get("symbol")
+                    if not symbol:
+                        continue
+                    ticker = yf.Ticker(symbol)
+                    try:
+                        info = ticker.info or {}
+                    except Exception as error:
+                        info = {}
+                        fehler_liste.append(f"{symbol}: {error}")
+                    price = finite_number(quote.get("regularMarketPrice", quote.get("intradayprice")))
+                    mcap = finite_number(quote.get("marketCap", quote.get("intradaymarketcap")))
+                    if price is None or mcap is None:
+                        fehler_liste.append(f"{symbol}: Kurs oder Marktkapitalisierung fehlt")
+                        continue
+                    if not (0.5 <= price <= max_preis) or mcap < min_mcap * 1_000_000:
+                        continue
+                    cash = finite_number(info.get("totalCash"))
+                    debt = finite_number(info.get("totalDebt"))
+                    fcf = finite_number(info.get("freeCashflow"))
+                    years, status = runway(cash, fcf)
+                    dilution = verwasserung_berechnen(ticker)
+                    ergebnisse.append({
+                        "Symbol": symbol,
+                        "Firma": info.get("shortName") or quote.get("shortName") or symbol,
+                        "Kurs USD": round(price, 2),
+                        "Marktkap. Mio. USD": round(mcap / 1_000_000, 1),
+                        "Bilanzwährung": info.get("financialCurrency") or "k.A.",
+                        "Cash Mio.": zahl(cash / 1_000_000) if cash is not None else None,
+                        "Schulden Mio.": zahl(debt / 1_000_000) if debt is not None else None,
+                        "Free Cashflow Mio.": zahl(fcf / 1_000_000) if fcf is not None else None,
+                        "Cash-Runway Jahre": zahl(years, 2),
+                        "Runway-Hinweis": status,
+                        "Aktienzahl 1J %": dilution,
+                        "Börse": quote.get("exchange", "k.A."),
+                    })
+                    if len(ergebnisse) >= max_treffer:
+                        break
+            if ergebnisse:
+                st.dataframe(pd.DataFrame(ergebnisse), use_container_width=True, hide_index=True)
+            else:
+                st.warning("Mit diesen Einstellungen wurden keine Biotech-Unternehmen gefunden.")
+            if fehler_liste:
+                st.warning("Bei einigen Titeln fehlen Daten. Leere Werte bedeuten unbekannt, nicht null.")
+                with st.expander("Datenfehler anzeigen"):
+                    st.write(fehler_liste)
+        except Exception as error:
+            st.error(f"Biotech-Suche derzeit nicht verfügbar: {error}")
+    st.caption("Cash, Schulden und FCF sind in der jeweiligen Bilanzwährung angegeben. Cash-Runway verwendet dieselbe Währung für Zähler und Nenner. Yahoo kann unterschiedliche Berichtsstände liefern; FCF ist die von Yahoo gelieferte jährliche Kennzahl, keine Prognose.")
+    st.caption("Aktienzahl 1J: ungefähre Veränderung ausstehenden Kapitals anhand historischer Aktienzahlen. Positive Werte zeigen mehr Aktien; Splits, ADR-Änderungen und Datenfehler können den Vergleich verzerren. Fehlende oder zu alte Daten bleiben leer. Kein Biotech-Score und keine Kaufempfehlung.")
 
 elif bereich == "🚀 Space / SpaceX":
-
-    st.header(
-        "🚀 Space / SpaceX-Chancen"
-    )
-
-    st.write(
-        "Hier suchen wir nach börsennotierten "
-        "Unternehmen aus Raumfahrt, Satelliten "
-        "und dem SpaceX-/Starlink-Umfeld."
-    )
-
-    st.info(
-        "🚀 Geplant: SpaceX-/Starlink-Bezug, "
-        "Aufträge, Umsatzwachstum, Cash, "
-        "Verschuldung und Bewertung."
-    )
+    st.header("🚀 Space / SpaceX-Chancen")
+    st.info("Platzhalter: Der Space-/SpaceX-Bereich wird später ergänzt.")
