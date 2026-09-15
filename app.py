@@ -27,7 +27,8 @@ if bereich == "💰 Schnäppchen":
 
     st.write(
         "Gesucht werden günstige Aktien. Bevorzugt werden Firmen mit "
-        "Gewinn, positivem Cashflow, viel Cash und geringer Verschuldung."
+        "Gewinn, positivem Cashflow, viel Cash, geringer Verschuldung "
+        "und Wachstum."
     )
 
     markt = st.radio(
@@ -166,9 +167,7 @@ if bereich == "💰 Schnäppchen":
                     if marketcap < min_marktkap * 1_000_000:
                         continue
 
-                    exchange = str(
-                        info.get("exchange", "")
-                    ).upper()
+                    exchange = str(info.get("exchange", "")).upper()
 
                     # Nur reguläre US-Börsen
                     if markt == "🇺🇸 USA":
@@ -190,7 +189,8 @@ if bereich == "💰 Schnäppchen":
                     cash = info.get("totalCash")
                     schulden = info.get("totalDebt")
                     cashflow = info.get("operatingCashflow")
-                    wachstum = info.get("revenueGrowth")
+                    umsatzwachstum = info.get("revenueGrowth")
+                    gewinnwachstum = info.get("earningsGrowth")
                     kgv = info.get("trailingPE")
                     volumen = info.get("averageVolume")
 
@@ -199,39 +199,58 @@ if bereich == "💰 Schnäppchen":
 
                     # Gewinn
                     if netto is not None and netto > 0:
-                        score += 25
+                        score += 20
                         gruende.append("Gewinn positiv")
 
                     # Cashflow
                     if cashflow is not None and cashflow > 0:
-                        score += 20
+                        score += 15
                         gruende.append("Cashflow positiv")
 
                     # Cash / Schulden
                     if cash is not None and schulden is not None:
 
                         if schulden == 0:
-                            score += 25
+                            score += 20
                             gruende.append("Keine Schulden")
 
                         elif cash > schulden:
-                            score += 25
+                            score += 20
                             gruende.append("Mehr Cash als Schulden")
 
                         elif cash > schulden * 0.5:
-                            score += 10
+                            score += 8
                             gruende.append("Solide Cash-Position")
 
                     # Umsatzwachstum
-                    if wachstum is not None:
+                    if umsatzwachstum is not None:
 
-                        if wachstum > 0.10:
+                        if umsatzwachstum > 0.20:
                             score += 15
+                            gruende.append("Starkes Umsatzwachstum")
+
+                        elif umsatzwachstum > 0.10:
+                            score += 12
                             gruende.append("Umsatzwachstum >10 %")
 
-                        elif wachstum > 0:
-                            score += 8
+                        elif umsatzwachstum > 0:
+                            score += 6
                             gruende.append("Umsatz wächst")
+
+                    # Gewinnwachstum
+                    if gewinnwachstum is not None:
+
+                        if gewinnwachstum > 0.20:
+                            score += 15
+                            gruende.append("Starkes Gewinnwachstum")
+
+                        elif gewinnwachstum > 0.10:
+                            score += 10
+                            gruende.append("Gewinnwachstum >10 %")
+
+                        elif gewinnwachstum > 0:
+                            score += 5
+                            gruende.append("Gewinn wächst")
 
                     # KGV
                     if kgv is not None:
@@ -242,19 +261,16 @@ if bereich == "💰 Schnäppchen":
 
                         elif 15 < kgv <= 25:
                             score += 5
+                            gruende.append("Moderates KGV")
 
-                    # Liquidität
+                    # Handelsliquidität
                     if volumen is not None and volumen >= 500000:
                         score += 5
                         gruende.append("Gute Liquidität")
 
                     score = min(score, 100)
 
-                    # --------------------------------------------
-                    # WICHTIG:
-                    # Unter 50 Punkten kein Schnäppchen-Kandidat
-                    # --------------------------------------------
-
+                    # Unter 50 Punkten nicht anzeigen
                     if score < 50:
                         continue
 
@@ -262,6 +278,11 @@ if bereich == "💰 Schnäppchen":
                         bewertung = "🟢 Top-Kandidat"
                     else:
                         bewertung = "🟡 Beobachten"
+
+                    def prozentwert(wert):
+                        if wert is None:
+                            return None
+                        return round(wert * 100, 1)
 
                     kandidaten.append(
                         {
@@ -271,7 +292,6 @@ if bereich == "💰 Schnäppchen":
                             "Marktkap. Mio.": round(
                                 marketcap / 1_000_000, 1
                             ),
-                            "Börse": exchange,
                             "KGV": (
                                 round(float(kgv), 1)
                                 if kgv is not None
@@ -291,9 +311,14 @@ if bereich == "💰 Schnäppchen":
                             ),
                             "Cashflow": (
                                 "✅"
-                                if cashflow is not None
-                                and cashflow > 0
+                                if cashflow is not None and cashflow > 0
                                 else "❌"
+                            ),
+                            "Umsatzwachstum %": prozentwert(
+                                umsatzwachstum
+                            ),
+                            "Gewinnwachstum %": prozentwert(
+                                gewinnwachstum
                             ),
                             "Score": score,
                             "Bewertung": bewertung,
@@ -327,6 +352,7 @@ if bereich == "💰 Schnäppchen":
                 df = df.head(max_treffer)
 
                 top = df[df["Score"] >= 75]
+
                 beobachten = df[
                     (df["Score"] >= 50) &
                     (df["Score"] < 75)
@@ -353,18 +379,17 @@ if bereich == "💰 Schnäppchen":
                     )
 
                 st.caption(
-                    "Der Score ist unser eigener Filter und keine "
-                    "Kaufempfehlung. Ein Treffer sollte anschließend "
-                    "genauer analysiert werden."
+                    "Der Score ist ein automatischer Vorfilter und "
+                    "keine Kaufempfehlung. Die Fundamentaldaten stammen "
+                    "von Yahoo Finance und sollten vor einer Anlageentscheidung "
+                    "überprüft werden."
                 )
 
             else:
 
                 st.warning(
                     "Keine Qualitäts-Schnäppchen mit mindestens "
-                    "50 Punkten gefunden. Das ist ebenfalls ein "
-                    "sinnvolles Ergebnis – wir lockern die Qualitätskriterien "
-                    "nicht nur, um Treffer zu produzieren."
+                    "50 Punkten gefunden."
                 )
 
 
@@ -377,13 +402,13 @@ elif bereich == "🧬 Biotech-Perlen":
     st.header("🧬 Biotech-Perlen")
 
     st.write(
-        "Hier suchen wir später gezielt nach kleinen "
-        "Biotech-Unternehmen mit interessanter Pipeline."
+        "Hier suchen wir gezielt nach kleinen Biotech-Unternehmen "
+        "mit interessanter Pipeline."
     )
 
     st.info(
-        "📅 Geplant: FDA-/PDUFA-Termine, Studiendaten, "
-        "Cash-Runway und Verschuldung."
+        "📅 Nächster Ausbau: FDA-/PDUFA-Termine, klinische Studien, "
+        "Cash-Runway, Pipeline und Verwässerungsrisiko."
     )
 
 
@@ -396,11 +421,11 @@ elif bereich == "🚀 Space / SpaceX":
     st.header("🚀 Space / SpaceX-Chancen")
 
     st.write(
-        "Hier suchen wir später nach börsennotierten Unternehmen "
-        "aus Raumfahrt, Satelliten und dem SpaceX-/Starlink-Umfeld."
+        "Hier suchen wir nach börsennotierten Unternehmen aus "
+        "Raumfahrt, Satelliten und dem SpaceX-/Starlink-Umfeld."
     )
 
     st.info(
-        "🚀 Geplant: SpaceX-Bezug, Aufträge, Umsatzwachstum, "
-        "Gewinn, Cash und Verschuldung."
+        "🚀 Geplant: SpaceX-/Starlink-Bezug, Aufträge, "
+        "Umsatzwachstum, Gewinn, Cash und Verschuldung."
     )
