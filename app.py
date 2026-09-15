@@ -906,21 +906,170 @@ if bereich == "💰 Schnäppchen":
 
 elif bereich == "🧬 Biotech-Perlen":
 
-    st.header(
-        "🧬 Biotech-Perlen"
-    )
+    st.header("🧬 Biotech-Perlen")
 
     st.write(
-        "Biotech-Unternehmen erhalten einen eigenen "
-        "Bewertungsansatz, weil Gewinn und KGV bei "
-        "Entwicklungsfirmen häufig wenig aussagekräftig sind."
+        "Hier suchen wir gezielt nach kleineren US-Biotech-Unternehmen. "
+        "Bei Entwicklungsfirmen sind Gewinn und KGV oft wenig aussagekräftig. "
+        "Deshalb verwenden wir später einen eigenen Biotech-Score."
     )
 
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        biotech_max_preis = st.number_input(
+            "Maximaler Aktienkurs ($)",
+            min_value=1.0,
+            max_value=50.0,
+            value=5.0,
+            step=1.0
+        )
+
+    with col2:
+        biotech_min_mcap = st.number_input(
+            "Mindest-Marktkapitalisierung (Mio. $)",
+            min_value=10,
+            max_value=5000,
+            value=50,
+            step=10
+        )
+
+    with col3:
+        biotech_max_treffer = st.slider(
+            "Max. Treffer",
+            min_value=5,
+            max_value=50,
+            value=20,
+            step=5
+        )
+
     st.info(
-        "📅 Nächster Ausbau: FDA-/PDUFA-Termine, "
-        "klinische Studien, Pipeline, Cash-Runway, "
-        "Partnerschaften und Verwässerungsrisiko."
+        "🧪 Erste Stufe: Wir suchen echte US-Biotech-Aktien. "
+        "Cash-Runway, Pipeline, klinische Phase, FDA/PDUFA-Termine, "
+        "Partnerschaften und Verwässerungsrisiko ergänzen wir danach."
     )
+
+    if st.button("🔎 Biotech-Perlen suchen"):
+
+        with st.spinner("Biotech-Unternehmen werden gesucht ..."):
+
+            try:
+
+                query = yf.EquityQuery(
+                    "and",
+                    [
+                        yf.EquityQuery(
+                            "eq",
+                            ["industry", "Biotechnology"]
+                        ),
+                        yf.EquityQuery(
+                            "lt",
+                            ["intradayprice", biotech_max_preis]
+                        ),
+                        yf.EquityQuery(
+                            "gt",
+                            [
+                                "intradaymarketcap",
+                                biotech_min_mcap * 1_000_000
+                            ]
+                        )
+                    ]
+                )
+
+                antwort = yf.screen(
+                    query,
+                    size=250,
+                    sortField="intradaymarketcap",
+                    sortAsc=False
+                )
+
+                quotes = antwort.get("quotes", [])
+
+                erlaubte_boersen = {
+                    "NMS",
+                    "NGM",
+                    "NCM",
+                    "NYQ",
+                    "ASE",
+                    "NAS"
+                }
+
+                ergebnisse = []
+
+                for aktie in quotes:
+
+                    symbol = aktie.get("symbol")
+                    boerse = aktie.get("exchange")
+
+                    if not symbol:
+                        continue
+
+                    if boerse not in erlaubte_boersen:
+                        continue
+
+                    preis = aktie.get("regularMarketPrice")
+                    if preis is None:
+                        preis = aktie.get("intradayprice")
+
+                    mcap = aktie.get("marketCap")
+                    if mcap is None:
+                        mcap = aktie.get("intradaymarketcap")
+
+                    ergebnisse.append(
+                        {
+                            "Symbol": symbol,
+                            "Firma": aktie.get(
+                                "shortName",
+                                aktie.get("longName", "")
+                            ),
+                            "Kurs $": (
+                                round(preis, 2)
+                                if isinstance(preis, (int, float))
+                                else None
+                            ),
+                            "Marktkap. Mio. $": (
+                                round(mcap / 1_000_000, 1)
+                                if isinstance(mcap, (int, float))
+                                else None
+                            ),
+                            "Börse": boerse
+                        }
+                    )
+
+                    if len(ergebnisse) >= biotech_max_treffer:
+                        break
+
+                if ergebnisse:
+
+                    df_biotech = pd.DataFrame(ergebnisse)
+
+                    st.subheader("🧬 Gefundene Biotech-Kandidaten")
+
+                    st.dataframe(
+                        df_biotech,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    st.caption(
+                        "Diese Liste ist noch keine Kaufempfehlung. "
+                        "Im nächsten Ausbau bewerten wir Cash-Runway, "
+                        "klinische Pipeline, FDA/PDUFA-Katalysatoren, "
+                        "Partnerschaften und Verwässerung."
+                    )
+
+                else:
+
+                    st.warning(
+                        "Mit diesen Einstellungen wurden keine "
+                        "Biotech-Unternehmen gefunden."
+                    )
+
+            except Exception as fehler:
+
+                st.error(
+                    f"Fehler bei der Biotech-Suche: {fehler}"
+                )
 
 
 # ============================================================
