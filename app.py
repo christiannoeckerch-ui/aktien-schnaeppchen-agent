@@ -940,6 +940,17 @@ elif bereich == "🧬 Biotech-Perlen":
         except (ValueError, TypeError):
             return None
 
+    def runway_ampel(years):
+        if years is None or not math.isfinite(years) or years < 0:
+            return "⚪ Nicht berechenbar"
+        if years >= 2:
+            return "🟢 Ab 2 Jahren"
+        if years >= 1:
+            return "🟡 1 bis unter 2 Jahre"
+        return "🔴 Unter 1 Jahr"
+
+    st.caption("Cash-Runway-Ampel: 🟢 ab 2 Jahren · 🟡 1 bis unter 2 Jahre · 🔴 unter 1 Jahr · ⚪ Daten fehlen oder FCF nicht negativ. Die Ampel bewertet nur die geschätzte Liquiditätsreichweite, nicht die Aktie insgesamt.")
+
     def runway(cash, fcf):
         if fcf is None:
             return None, "FCF fehlt"
@@ -986,6 +997,7 @@ elif bereich == "🧬 Biotech-Perlen":
                     years, status = runway(cash, fcf)
                     dilution = verwasserung_berechnen(ticker)
                     ergebnisse.append({
+                        "Runway-Ampel": runway_ampel(years),
                         "Symbol": symbol,
                         "Firma": info.get("shortName") or quote.get("shortName") or symbol,
                         "Kurs USD": round(price, 2),
